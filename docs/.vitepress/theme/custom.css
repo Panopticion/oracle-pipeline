@@ -1,0 +1,189 @@
+/* ── Panopticon AI — "The Observability Layer" ──────────────── */
+
+:root {
+  /* Force dark mode as default */
+  color-scheme: dark;
+
+  /* Typography */
+  --vp-font-family-base: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --vp-font-family-mono: "Fira Code", ui-monospace, SFMono-Regular, "SF Mono",
+    Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Brand palette — electric cyan on obsidian */
+  --vp-c-brand-1: #22d3ee;
+  --vp-c-brand-2: #06b6d4;
+  --vp-c-brand-3: #0891b2;
+  --vp-c-brand-soft: rgba(34, 211, 238, 0.12);
+}
+
+/* ── Dark theme overrides (default) ─────────────────────────── */
+
+.dark {
+  --vp-c-bg: #0f172a;
+  --vp-c-bg-alt: #1e293b;
+  --vp-c-bg-elv: #1e293b;
+  --vp-c-bg-soft: #1e293b;
+
+  --vp-c-text-1: #f1f5f9;
+  --vp-c-text-2: #94a3b8;
+  --vp-c-text-3: #64748b;
+
+  --vp-c-divider: #334155;
+  --vp-c-gutter: #1e293b;
+
+  --vp-c-brand-1: #22d3ee;
+  --vp-c-brand-2: #06b6d4;
+  --vp-c-brand-3: #0891b2;
+  --vp-c-brand-soft: rgba(34, 211, 238, 0.12);
+
+  --vp-button-brand-bg: #0891b2;
+  --vp-button-brand-hover-bg: #06b6d4;
+  --vp-button-brand-active-bg: #0e7490;
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(
+    135deg,
+    #22d3ee 0%,
+    #818cf8 100%
+  );
+
+  --vp-home-hero-image-background-image: radial-gradient(
+    ellipse at center,
+    rgba(34, 211, 238, 0.15) 0%,
+    transparent 60%
+  );
+  --vp-home-hero-image-filter: blur(72px);
+}
+
+/* ── Hero section tweaks ────────────────────────────────────── */
+
+.VPHero .name {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.VPHero .tagline {
+  font-size: 1.2rem;
+  color: var(--vp-c-text-2);
+}
+
+/* ── Code blocks ────────────────────────────────────────────── */
+
+.dark .vp-code-group .tabs label,
+.dark div[class*="language-"] {
+  background-color: #0c1222;
+}
+
+.dark div[class*="language-"] code {
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+/* ── Feature cards ──────────────────────────────────────────── */
+
+.VPFeature {
+  border: 1px solid var(--vp-c-divider);
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+.dark .VPFeature:hover {
+  border-color: var(--vp-c-brand-1);
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.08);
+}
+
+/* ── Nav / footer polish ────────────────────────────────────── */
+
+.VPFooter {
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.VPFooter .message a {
+  color: var(--vp-c-brand-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Pipeline flow diagram (custom) ─────────────────────────── */
+
+.pipeline-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
+  margin: 2rem 0;
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.85rem;
+  overflow-x: auto;
+}
+
+.pipeline-flow .node {
+  background: var(--vp-c-bg-alt);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  white-space: nowrap;
+  color: var(--vp-c-text-1);
+}
+
+.pipeline-flow .node.highlight {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+  box-shadow: 0 0 16px rgba(34, 211, 238, 0.1);
+}
+
+.pipeline-flow .arrow {
+  color: var(--vp-c-text-3);
+  font-size: 1.2rem;
+}
+
+/* ── Tables ────────────────────────────────────────────────── */
+
+.dark .vp-doc th {
+  background: var(--vp-c-bg-alt);
+  font-weight: 600;
+}
+
+/* ── Mobile responsiveness ─────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .VPHero .tagline {
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+
+  .pipeline-flow {
+    justify-content: flex-start;
+    gap: 0.35rem;
+    padding: 1.25rem 0.5rem;
+    margin: 1.25rem 0;
+    font-size: 0.78rem;
+  }
+
+  .pipeline-flow .node {
+    padding: 0.45rem 0.75rem;
+  }
+
+  .pipeline-flow .arrow {
+    font-size: 1rem;
+  }
+
+  .vp-doc table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .VPHero .tagline {
+    font-size: 0.95rem;
+  }
+
+  .pipeline-flow {
+    font-size: 0.74rem;
+  }
+}

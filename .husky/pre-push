@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+echo "🔍 Running pre-push checks..."
+
+npm run prettier:check || { echo "❌ Prettier failed"; exit 1; }
+npm run lint          || { echo "❌ ESLint failed"; exit 1; }
+npm run typecheck     || { echo "❌ Typecheck failed"; exit 1; }
+npm test              || { echo "❌ Tests failed"; exit 1; }
+
+echo "✅ All pre-push checks passed"

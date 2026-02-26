@@ -1,0 +1,50 @@
+# Panopticon Corpus Pipeline — Supabase configuration
+# Reference: https://supabase.com/docs/guides/local-development/cli/config
+project_id = "panopticon"
+
+[auth]
+enabled = true
+site_url = "https://panopticonlabs.ai"
+additional_redirect_urls = [
+  "https://panopticonlabs.ai/auth/callback",
+  "http://localhost:3000/auth/callback",
+]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = false
+minimum_password_length = 8
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+secure_password_change = false
+max_frequency = "1m"
+otp_length = 6
+otp_expiry = 3600
+
+[auth.email.template.confirmation]
+subject = "Confirm your email — Panopticon"
+content_path = "./supabase/email-templates/confirm-signup.html"
+
+[auth.email.template.invite]
+subject = "You're invited — Panopticon"
+content_path = "./supabase/email-templates/invite-user.html"
+
+[auth.email.template.magic_link]
+subject = "Your sign-in link — Panopticon"
+content_path = "./supabase/email-templates/magic-link.html"
+
+[auth.email.template.email_change]
+subject = "Confirm email change — Panopticon"
+content_path = "./supabase/email-templates/change-email.html"
+
+[auth.email.template.recovery]
+subject = "Reset your password — Panopticon"
+content_path = "./supabase/email-templates/reset-password.html"
+
+[auth.email.template.reauthentication]
+subject = "Confirm your identity — Panopticon"
+content_path = "./supabase/email-templates/reauthentication.html"

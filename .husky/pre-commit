@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+# ── Identity guard (migrated from .githooks/pre-commit) ──────────────────────
+BLOCKED_NAMES="Stephen Fishburn"
+BLOCKED_EMAILS="stephen@onticlaba.ai|stephen@onticlabs.ai"
+AUTHOR_NAME=$(git config user.name)
+AUTHOR_EMAIL=$(git config user.email)
+
+if echo "$AUTHOR_NAME" | grep -qiE "$BLOCKED_NAMES"; then
+  echo "❌ BLOCKED: git user.name \"$AUTHOR_NAME\" matches a blocked identity."
+  echo ""
+  echo "   Fix with:"
+  echo "   git config user.name \"Panopticon AI\""
+  echo "   git config user.email \"263997563+Panopticion@users.noreply.github.com\""
+  exit 1
+fi
+
+if echo "$AUTHOR_EMAIL" | grep -qiE "$BLOCKED_EMAILS"; then
+  echo "❌ BLOCKED: git user.email \"$AUTHOR_EMAIL\" matches a blocked identity."
+  echo ""
+  echo "   Fix with:"
+  echo "   git config user.email \"263997563+Panopticion@users.noreply.github.com\""
+  exit 1
+fi
+
+# ── Lint-staged (lint + format only changed files) ───────────────────────────
+npx lint-staged

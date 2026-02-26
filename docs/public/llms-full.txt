@@ -1,0 +1,2759 @@
+# Panopticon AI - Full Documentation
+
+> Compliance-grade corpus ingestion pipeline for Postgres 17 + pgvector
+> Generated: 2026-02-26T00:00:00Z
+
+---
+
+
+<div class="pipeline-flow">
+  <span class="node">Corpus Markdown</span>
+  <span class="arrow">→</span>
+  <span class="node">Validate</span>
+  <span class="arrow">→</span>
+  <span class="node">Chunk</span>
+  <span class="arrow">→</span>
+  <span class="node highlight">Watermark</span>
+  <span class="arrow">→</span>
+  <span class="node highlight">Embed (OpenAI)</span>
+  <span class="arrow">→</span>
+  <span class="node">Postgres + pgvector</span>
+  <span class="arrow">→</span>
+  <span class="node">Your RAG Pipeline</span>
+</div>
+
+## Traditional RAG vs. Panopticon
+
+Split text, call an embedding API, dump vectors, move on. That's fine for a chatbot. It's negligent
+for regulated industries.
+
+| Capability                    | Traditional Pipeline               | Panopticon                                               |
+| ----------------------------- | ---------------------------------- | -------------------------------------------------------- |
+| **Attribution**               | None. Vectors are anonymous blobs. | `CHECK` constraint — un-attributed vectors can't exist   |
+| **Provenance**                | Trust the pipeline operator        | Cryptographic watermark on every chunk                   |
+| **Tamper detection**          | None                               | Content hash + signature — strip or alter either, caught |
+| **Audit trail**               | Application logs, maybe            | Immutable attestation records per embedding event        |
+| **Jurisdictional boundaries** | Hope the LLM sorts it out          | S.I.R.E. deterministic enforcement gates                 |
+| **Concurrent embedding**      | Pray for no double-writes          | Lease-based `FOR UPDATE SKIP LOCKED` with auto-recovery  |
+| **Platform lock-in**          | Proprietary SDK                    | Any Postgres 17 + pgvector. PostgREST. Your infra.       |
+
+## Context Collapse
+
+Your RAG pipeline queries for "access control requirements under GDPR." Semantic search returns:
+
+```
+1. GDPR Art. 32 — Security of processing             similarity: 0.92
+2. HIPAA § 164.312 — Technical safeguards             similarity: 0.89
+3. SOC 2 CC6.1 — Logical access controls              similarity: 0.87
+4. ISO 27001 A.9 — Access control policy               similarity: 0.85
+```
+
+All four are about access control. The embeddings are close. So the LLM gets all four and produces:
+
+> "Under GDPR, covered entities must implement technical safeguards per §164.312..."
+
+That mixes EU data protection law with US healthcare regulations. Reads authoritative. Legally
+incoherent.
+
+**Context Collapse.** Semantically close, jurisdictionally wrong. The LLM can't tell the difference.
+Prompt engineering won't fix this — the evidence was contaminated before generation started.
+
+### S.I.R.E. Fixes This at the Data Layer
+
+S.I.R.E. — Subject, Included, Relevant, Excluded. Identity metadata in your corpus frontmatter,
+stored on every chunk. After retrieval, before synthesis, the gate fires:
+
+```
+GDPR Art. 32          → ✓ subject: data_protection
+HIPAA § 164.312       → ✗ PURGED — "covered entity" matches excluded term
+SOC 2 CC6.1           → ✗ PURGED — crossed jurisdictional boundary
+ISO 27001 A.9         → ✓ passes — mapped via relevant: [ISO-27001:A.8]
+```
+
+The LLM gets clean evidence. No bleed. No collapse.
+
+[Learn how S.I.R.E. works →](/sire)
+
+## What Is a Corpus?
+
+A **corpus** is a Markdown document with regulatory or policy content. YAML frontmatter declares the
+authority tier, frameworks, industries, and jurisdictional identity:
+
+```markdown
+---
+corpus_id: gdpr-core-v1
+title: GDPR Core Requirements
+tier: tier_1
+version: 1
+content_type: prose
+frameworks: [GDPR]
+industries: [fintech, healthcare, saas]
+fact_check:
+  status: verified
+  checked_at: "2026-01-10"
+  checked_by: Compliance Team
+sire:
+  subject: data_protection
+  included: [personal data, data subject, controller, processor, DPIA]
+  excluded: [PHI, covered entity, business associate, HIPAA]
+  relevant: [ISO-27001:A.8, SOC2:CC6.1, CCPA]
+---
+
+## Data Subject Rights
+
+Organizations must respond to data subject requests within one calendar month...
+```
+
+Panopticon validates, chunks, watermarks, and embeds. It does not do retrieval or generation —
+that's your job. You get a sovereignty-attributed vector store. Your retrieval layer queries it.
+
+## Under the Hood
+
+### 1. Structural Attribution (CHECK Constraint)
+
+Every vector requires a registered **embedding authority** and **egress policy**. The database
+enforces this with a `CHECK` constraint. No authority ID, no vector. The INSERT fails.
+
+### 2. Provenance Watermarking
+
+Every chunk gets a cryptographic watermark before storage:
+
+```html
+<!-- corpus-watermark:v1:gdpr-core-v1:3:a1b2c3d4e5f67890 -->
+```
+
+Verification is self-contained. No database needed:
+
+```typescript
+import { verifyChunkWatermark } from "@panopticon/corpus-pipeline";
+
+const result = verifyChunkWatermark(chunk.content);
+// { valid: true, payload: { corpusId: "gdpr-core-v1", sequence: 3, ... } }
+```
+
+Tamper with the content? Signature won't match. Strip the watermark? Content hash won't match.
+Either way, caught.
+
+On by default. Zero config. Set `WATERMARK_SECRET` for HMAC-SHA256.
+
+### 3. Immutable Audit Envelopes
+
+Every run logs an attestation record: who triggered it, which authority, which policy, what changed,
+pass or fail. `corpus_embedding_events` records every completion and failure at the chunk level.
+Append-only.
+
+### 4. Lease-Based Concurrency
+
+Claim/complete/fail with `FOR UPDATE SKIP LOCKED`. 600-second leases. Multiple workers, no
+double-embeds. Worker dies? Lease expires, chunks re-enter the queue.
+
+### 5. S.I.R.E. Identity-First Retrieval
+
+Semantic search finds text _about_ similar things. S.I.R.E. enforces which chunks are _governed by_
+the same authority. Four fields in corpus frontmatter:
+
+```yaml
+sire:
+  subject: data_protection # Identity anchor
+  included: [personal data, controller, processor] # Search enrichment
+  excluded: [PHI, covered entity, HIPAA] # Hard boundary gate
+  relevant: [ISO-27001:A.8, SOC2:CC6.1] # Topology expansion
+```
+
+**Only `excluded` enforces.** Everything else informs. Retrieval functions return S.I.R.E. metadata
+with every chunk. Your application layer applies the gate. Add it to your riskiest corpora first.
+Everything else works like before.
+
+[Full S.I.R.E. documentation →](/sire)
+
+## Ingestion Preview
+
+```typescript
+import { createClient } from "@supabase/supabase-js";
+import { executePipelineRequest, type SovereigntyContext } from "@panopticon/corpus-pipeline";
+
+const client = createClient(
+  process.env.POSTGREST_URL!, // Any PostgREST endpoint
+  process.env.PIPELINE_ADMIN_KEY!,
+);
+
+const sovereignty: SovereigntyContext = {
+  runId: crypto.randomUUID(),
+  embeddingAuthorityId: process.env.EMBEDDING_AUTHORITY_ID!,
+  egressPolicyId: process.env.EGRESS_POLICY_ID!,
+  triggeredBy: "cli",
+};
+
+const response = await executePipelineRequest({
+  client,
+  request: { action: "ingest_and_embed" },
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  sovereignty,
+});
+
+console.log(response.summary);
+// { total: 12, valid: 12, ingested: 8, embedded: 8, errors: 0 }
+```
+
+## Connect Your RAG Layer
+
+Panopticon embeds and stores. Retrieval is your job. Three options:
+
+### MCP Server (Claude Desktop / Claude Code)
+
+The pipeline ships an MCP server. Two tools: `search_compliance_corpus` and `verify_chunk_provenance`. Add it to Claude Desktop or Claude Code — your compliance corpus becomes a tool Claude can call directly.
+
+```json
+{
+  "mcpServers": {
+    "panopticon": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp-server.ts"],
+      "env": {
+        "POSTGREST_URL": "https://your-project.supabase.co",
+        "PIPELINE_ADMIN_KEY": "your-service-role-key",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+[MCP Server docs →](/mcp)
+
+### SQL Functions (Any Language)
+
+Two PostgREST-callable functions for your own retrieval layer:
+
+- **`match_corpus_chunks`** — semantic search with metadata filtering (tier, frameworks, industries)
+- **`match_corpus_chunks_hybrid`** — vector + full-text with Reciprocal Rank Fusion
+
+Both return S.I.R.E. metadata with every result. Deactivated corpora excluded automatically.
+
+[Pipeline Guide](/guide) for SQL examples. [API Reference](/api) for function signatures.
+
+## Corpus Pipeline Web UI
+
+The hosted web application provides a complete document-to-corpus workflow:
+
+1. **Sign in** — email/password or magic link via Supabase Auth
+2. **Create a session** — group related compliance documents into a batch
+3. **Upload & AI-parse** — drag-and-drop raw text; CFPO-prompted AI (via OpenRouter, Claude Sonnet) produces structured corpus Markdown with S.I.R.E. identity metadata
+4. **Review & edit** — human-in-the-loop editing of every AI-generated parse
+5. **Generate crosswalk** — AI maps controls across all uploaded frameworks (GDPR ↔ HIPAA ↔ SOC 2…)
+6. **Download bundle** — ZIP of all parsed documents, crosswalk, and auto-generated README
+
+The web UI uses the same parse and crosswalk prompts as the CLI. Built with TanStack Start, Zustand, and Tailwind CSS.
+
+## Try It Now (CLI)
+
+No database. No API keys. No Docker.
+
+```bash
+git clone https://github.com/Panopticion/corpora-pipeline.git
+cd corpora-pipeline
+npm install
+
+npx tsx src/cli.ts --action validate
+```
+
+```
+[corpus-pipeline] action=validate corpus=all dryRun=false
+  ✓ ai-usage-boundaries-v1
+  ✓ crosswalk-gdpr-hipaa-soc2-v1
+  ✓ gdpr-core-v1
+  ✓ healthcare-compliance-v1
+  ✓ identity-first-retrieval-v1
+  ✓ soc2-controls-structured-v1
+```
+
+6 sample corpora: GDPR, HIPAA, SOC 2, AI governance, cross-framework mapping, and S.I.R.E. All
+include identity metadata and fact-check attestations.
+
+Want to contribute? See the [Product Roadmap](/roadmap) for phase-by-phase
+`good_first_contributions` tasks.
+
+**Ready for the full pipeline?** [Quickstart](/quickstart) — Postgres, PostgREST, sovereignty
+seeding, and embedding in ~10 minutes.
+
+---
+
+
+# Quickstart
+
+This walkthrough takes you from an empty machine to a running pipeline with embedded corpus chunks
+you can query. No shortcuts, no lies — every step is here.
+
+**Time:** ~10 minutes (excluding Docker image pulls)
+
+## Prerequisites
+
+You need four things installed:
+
+| Tool               | Why                                             | Install                                                     |
+| ------------------ | ----------------------------------------------- | ----------------------------------------------------------- |
+| **Docker**         | Runs Postgres + PostgREST locally               | [docker.com](https://docs.docker.com/get-docker/)           |
+| **Node.js 20+**    | Runs the pipeline CLI                           | [nodejs.org](https://nodejs.org/)                           |
+| **psql**           | Bootstraps the database schema                  | Comes with Postgres, or `brew install libpq` on macOS       |
+| **OpenAI API key** | Generates embeddings (`text-embedding-3-large`) | [platform.openai.com](https://platform.openai.com/api-keys) |
+
+::: warning OpenAI costs money The embedding step calls OpenAI's API. The 6 sample corpora cost
+roughly $0.01–$0.02 to embed. You can run `validate` and `ingest` without an API key, but
+`ingest_and_embed` requires one. :::
+
+## 1. Clone and Install
+
+```bash
+git clone https://github.com/Panopticion/corpora-pipeline.git
+cd corpora-pipeline
+npm install
+```
+
+## 2. Start the Database
+
+The included `docker-compose.yml` starts two containers:
+
+- **pgvector** — Postgres 17 with the `vector` extension (port 5432)
+- **PostgREST** — HTTP API over Postgres (port 3000)
+
+```bash
+docker compose up -d
+```
+
+Wait for both containers to be healthy:
+
+```bash
+docker compose ps
+```
+
+You should see both services with status `Up` (PostgREST waits for Postgres to pass its healthcheck
+before starting).
+
+## 3. Bootstrap the Schema
+
+The schema is 11 idempotent SQL files. Run them in order against the local Postgres:
+
+```bash
+for f in sql/0*.sql sql/10_grants.sql; do
+  psql "postgresql://postgres:postgres@localhost:5432/postgres" -f "$f"
+done
+```
+
+This creates roles, extensions, tables, RLS policies, retrieval functions, and grants. Running it
+twice is safe — every file uses `CREATE ... IF NOT EXISTS` or equivalent.
+
+## 4. Generate a JWT
+
+PostgREST authenticates via JWT. The docker-compose file uses a dev-only secret. Generate a
+`pipeline_admin` token:
+
+```bash
+node -e "
+const header = Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
+const payload = Buffer.from(JSON.stringify({
+  role:'pipeline_admin',
+  sub:'00000000-0000-0000-0000-000000000000',
+  iss:'postgrest',
+  iat: Math.floor(Date.now()/1000)
+})).toString('base64url');
+const crypto = require('crypto');
+const sig = crypto.createHmac('sha256','super-secret-jwt-key-minimum-32-chars-long!!')
+  .update(header+'.'+payload).digest('base64url');
+console.log(header+'.'+payload+'.'+sig);
+"
+```
+
+Copy the output — you'll need it in step 6.
+
+::: tip Pre-computed token for the default docker-compose secret If you haven't changed the JWT
+secret, this token works:
+
+```
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoicGlwZWxpbmVfYWRtaW4iLCJzdWIiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDAiLCJpc3MiOiJwb3N0Z3Jlc3QiLCJpYXQiOjE3NzIwNDk4Njd9.loGoIeq9BAFH4_L2w6cmAGaWJx6VCLSELW_M8OcF1-0
+```
+
+:::
+
+## 5. Seed Sovereignty Records
+
+The pipeline requires two things before it will embed anything:
+
+1. An **egress policy** — declares how embeddings leave your network
+2. An **embedding authority** — declares who/what is performing the embedding
+
+Create both:
+
+```bash
+psql "postgresql://postgres:postgres@localhost:5432/postgres" <<'SQL'
+INSERT INTO egress_policies (name, scope, policy_hash, description, is_active)
+VALUES ('vpc-local-dev-v1', 'vpc', 'sha256:dev-placeholder', 'Local development policy', true)
+RETURNING id;
+
+INSERT INTO embedding_authorities (name, environment, owner, is_active)
+VALUES ('embedder-local-dev', 'vpc', 'quickstart', true)
+RETURNING id;
+SQL
+```
+
+Copy both UUIDs from the output.
+
+## 6. Set Environment Variables
+
+```bash
+export POSTGREST_URL="http://localhost:3000"
+export PIPELINE_ADMIN_KEY="<jwt-from-step-4>"
+export OPENAI_API_KEY="sk-..."
+export EMBEDDING_AUTHORITY_ID="<uuid-from-step-5>"
+export EGRESS_POLICY_ID="<uuid-from-step-5>"
+```
+
+## 7. Run the Pipeline
+
+The repo ships with 6 sample corpora in `corpora/samples/` (GDPR, HIPAA, SOC 2, AI governance, a
+cross-framework mapping, and identity-first retrieval). Ingest and embed them:
+
+```bash
+npx tsx src/cli.ts --action ingest_and_embed
+```
+
+You should see output like:
+
+```
+Pipeline complete: { total: 6, valid: 6, ingested: 6, embedded: 6, errors: 0 }
+```
+
+If you want to see what happens without calling OpenAI, run `--action ingest` instead — it validates
+and chunks but skips embedding.
+
+## 8. Query Your First Chunk
+
+Verify the chunks are in the database:
+
+```bash
+psql "postgresql://postgres:postgres@localhost:5432/postgres" \
+  -c "SELECT corpus_id, section_title, left(content, 80) FROM corpus_chunks LIMIT 5;"
+```
+
+To do a semantic search, you'd call `match_corpus_chunks` via PostgREST RPC with a 512-dimensional
+vector from `text-embedding-3-large`. See the [Pipeline Guide](/guide#connect-to-your-rag-pipeline)
+for full retrieval examples in SQL, TypeScript, Python, and cURL.
+
+## What Just Happened
+
+You now have:
+
+- **6 corpus documents** validated and stored in `corpus_documents`
+- **~60 chunks** with 512d embeddings in `corpus_chunks`, each attributed to your embedding
+  authority and egress policy
+- **6 embedding event logs** in `corpus_embedding_events`
+- **1 pipeline envelope** in `corpus_pipeline_run_attestations` recording who ran what and when
+
+Every vector in the database traces back to an authority, a policy, and a pipeline run. That's the
+sovereignty guarantee.
+
+## Next Steps
+
+| Goal                                   | Link                                                                                              |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Understand the full architecture       | [Pipeline Guide](/guide)                                                                          |
+| Write your own corpus documents        | [Authoring Guide](https://github.com/Panopticion/corpora-pipeline/blob/main/corpora/AUTHORING.md) |
+| Call retrieval functions from your app | [Connect to Your RAG Pipeline](/guide#connect-to-your-rag-pipeline)                               |
+| See every type and function            | [API Reference](/api)                                                                             |
+
+## Troubleshooting
+
+**PostgREST returns 401 / JWT invalid:** Your JWT doesn't match the `PGRST_JWT_SECRET` in
+`docker-compose.yml`. Regenerate it using the script in step 4.
+
+**`relation "egress_policies" does not exist`:** The SQL bootstrap didn't complete. Re-run step 3 —
+the files are idempotent.
+
+**OpenAI 429 (rate limit):** The pipeline retries automatically with exponential backoff. If it
+persists, you've hit your OpenAI account limit.
+
+**`docker compose` not found:** Older Docker versions use `docker-compose` (hyphenated). Try
+`docker-compose up -d`.
+
+---
+
+
+# Pipeline Guide
+
+Panopticon AI is a **validate → ingest → chunk → embed** pipeline for corpus documents — structured
+Markdown files containing regulatory, compliance, and policy knowledge. It produces a
+sovereignty-attributed vector store in Postgres that your RAG pipeline queries for retrieval.
+
+**What it does:** Validates corpus frontmatter, splits content on heading boundaries, generates
+embeddings via OpenAI, and stores attributed vectors in pgvector.
+
+**What it does NOT do:** Retrieval or generation. Those are your RAG pipeline's responsibility.
+Panopticon provides the retrieval SQL functions (`match_corpus_chunks`,
+`match_corpus_chunks_hybrid`) — you call them from your app.
+
+## Installation
+
+```bash
+git clone https://github.com/Panopticion/corpora-pipeline.git
+cd corpora-pipeline
+npm install
+```
+
+## Architecture
+
+```
+executePipelineRequest()
+  │
+  ├─ registerPipelineRun(client, sovereignty)
+  │     └─ INSERT → corpus_pipeline_run_attestations
+  │
+  ├─ runPipeline(client, corpus, { sovereignty })
+  │     ├─ validateCorpus()        ← frontmatter + content checks
+  │     ├─ ingestCorpus()          ← upsert doc + chunk on headings
+  │     └─ embedDocumentChunks()   ← OpenAI via sovereignty layer
+  │           │
+  │           ├─ claimChunks()     ← FOR UPDATE SKIP LOCKED
+  │           ├─ embedBatch()      ← text-embedding-3-large (512d)
+  │           ├─ completeChunk()   ← SET embedding + log event
+  │           └─ failChunk()       ← SET status='failed' + log event
+  │
+  └─ recordPipelineEnvelope()      ← audit envelope
+```
+
+## Database Setup
+
+The schema is split into 11 idempotent SQL files. Run them in order:
+
+```bash
+# Against any Postgres 17 + pgvector
+for f in sql/0*.sql sql/10_grants.sql; do
+  psql "$DATABASE_URL" -f "$f"
+done
+```
+
+| File                 | Purpose                                                  |
+| -------------------- | -------------------------------------------------------- |
+| `00_roles.sql`       | `pipeline_admin`, `pipeline_user`, `pipeline_anon` roles |
+| `01_extensions.sql`  | pgcrypto, pgvector, uuid_generate_v7()                   |
+| `02_console.sql`     | Orgs, members, projects, ontologies, policies + RLS      |
+| `03_sovereignty.sql` | Egress policies (immutable), embedding authorities       |
+| `04_builder.sql`     | Corpus domains, sources, state axes, versions            |
+| `05_content.sql`     | corpus_documents, corpus_chunks, corpus_indexes          |
+| `06_rls.sql`         | Content store row-level security                         |
+| `07_retrieval.sql`   | match, hybrid search, upsert, claim/complete             |
+| `08_views.sql`       | Summary views                                            |
+| `09_envelopes.sql`   | Pipeline envelopes, embedding event log                  |
+| `10_grants.sql`      | Function grants                                          |
+
+### Roles (no cloud dependency)
+
+| Role             | Replaces        | Purpose                             |
+| ---------------- | --------------- | ----------------------------------- |
+| `pipeline_admin` | `service_role`  | Full access — CLI and server routes |
+| `pipeline_user`  | `authenticated` | JWT-authenticated end-user (RLS)    |
+| `pipeline_anon`  | `anon`          | Unauthenticated read-only           |
+
+## PostgREST Setup
+
+The pipeline client speaks PostgREST. Point it at your database:
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e PGRST_DB_URI="$DATABASE_URL" \
+  -e PGRST_DB_SCHEMAS="public" \
+  -e PGRST_DB_ANON_ROLE="pipeline_anon" \
+  -e PGRST_JWT_SECRET="<your-jwt-secret>" \
+  postgrest/postgrest:v12.2.3
+```
+
+Or use the included Docker Compose for local dev:
+
+```bash
+docker compose up -d
+```
+
+This starts pgvector (Postgres 17) + PostgREST with the correct role mappings.
+
+## Environment Variables
+
+| Variable                 | Required | Description                                                     |
+| ------------------------ | -------- | --------------------------------------------------------------- |
+| `POSTGREST_URL`          | Yes      | PostgREST URL (`http://localhost:3000` for local)               |
+| `PIPELINE_ADMIN_KEY`     | Yes      | JWT with `role: pipeline_admin`                                 |
+| `OPENAI_API_KEY`         | Yes      | OpenAI API key for `text-embedding-3-large`                     |
+| `EMBEDDING_AUTHORITY_ID` | Yes      | UUID of the embedding authority                                 |
+| `EGRESS_POLICY_ID`       | Yes      | UUID of the egress policy                                       |
+| `ORGANIZATION_ID`        | No       | Multi-tenant org scope (NULL = platform)                        |
+| `WATERMARK_ENABLED`      | No       | Set to `false` to disable chunk watermarking (default: enabled) |
+| `WATERMARK_SECRET`       | No       | HMAC secret for watermark signatures (uses SHA-256 if not set)  |
+
+## Seed Sovereignty Records
+
+Before running the pipeline, create the required sovereignty records:
+
+```sql
+-- Create an egress policy
+INSERT INTO egress_policies (name, scope, policy_hash, description, is_active)
+VALUES ('vpc-no-public-egress-v1', 'vpc', 'sha256:placeholder', 'Dev policy', true)
+RETURNING id;  -- → EGRESS_POLICY_ID
+
+-- Create an embedding authority
+INSERT INTO embedding_authorities (name, environment, owner, is_active)
+VALUES ('embedder-dev-01', 'vpc', 'dev-team', true)
+RETURNING id;  -- → EMBEDDING_AUTHORITY_ID
+```
+
+## Running the Pipeline
+
+### CLI
+
+```bash
+# Full pipeline: validate → ingest → embed
+npx tsx src/cli.ts --action ingest_and_embed
+
+# Validate only (no writes)
+npx tsx src/cli.ts --action validate
+
+# Embed pending chunks (skip ingest)
+npx tsx src/cli.ts --action embed_pending
+```
+
+### Programmatic
+
+```typescript
+import { createClient } from "@supabase/supabase-js";
+import { executePipelineRequest, type SovereigntyContext } from "@panopticon/corpus-pipeline";
+
+const client = createClient(process.env.POSTGREST_URL!, process.env.PIPELINE_ADMIN_KEY!);
+
+const sovereignty: SovereigntyContext = {
+  runId: crypto.randomUUID(),
+  embeddingAuthorityId: process.env.EMBEDDING_AUTHORITY_ID!,
+  egressPolicyId: process.env.EGRESS_POLICY_ID!,
+  triggeredBy: "api",
+};
+
+const response = await executePipelineRequest({
+  client,
+  request: { action: "ingest_and_embed" },
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  sovereignty,
+});
+
+console.log(response.summary);
+```
+
+## Pipeline Actions
+
+| Action             | Description                                                |
+| ------------------ | ---------------------------------------------------------- |
+| `validate`         | Parse and validate all corpus frontmatter + content        |
+| `ingest`           | Validate + upsert documents + chunk (no embedding)         |
+| `ingest_and_embed` | Full pipeline: validate → ingest → embed                   |
+| `embed_pending`    | Embed chunks that are pending (skip ingest step)           |
+| `rechunk`          | Force-rechunk all documents even if content hasn't changed |
+| `ingest_content`   | Ingest raw markdown content (frontmatter + body string)    |
+
+## Sovereignty Flow
+
+Every embedding operation passes through the sovereignty layer:
+
+1. **`registerPipelineRun()`** — attests the run with authority + egress policy
+2. **`claimChunks()`** — `FOR UPDATE SKIP LOCKED` lease (600s default)
+3. **`embedBatch()`** — OpenAI `text-embedding-3-large` (512 dimensions)
+4. **`completeChunkEmbedding()`** — writes vector + logs to `corpus_embedding_events`
+5. **`failChunkEmbedding()`** — marks chunk as failed + logs the error
+
+The database **structurally prevents** un-attributed embeddings — `corpus_chunks` has a `CHECK`
+constraint requiring `embedding_authority_id` when `embedding IS NOT NULL`.
+
+## Provenance Watermarking
+
+Every chunk is stamped with a cryptographic watermark before it's stored in the database and
+embedded. This means the chunk **content itself** carries provenance — not just the database
+metadata.
+
+### How It Works
+
+After chunking and before database insertion, the pipeline appends an invisible HTML comment to each
+chunk:
+
+```html
+<!-- corpus-watermark:v1:gdpr-core-v1:3:a1b2c3d4e5f67890 -->
+```
+
+The signature is the first 16 hex characters of `SHA-256(corpus_id|sequence|content_hash)`. The
+`content_hash` is computed on the **original** un-watermarked content, so it serves as a
+tamper-detection anchor.
+
+### Verification
+
+Given any chunk content (even exported from the database), you can verify its provenance:
+
+```typescript
+import { verifyChunkWatermark, stripWatermark } from "@panopticon/corpus-pipeline";
+
+// Verify a chunk from your database or any external source
+const result = verifyChunkWatermark(chunk.content);
+
+if (result.valid) {
+  console.log(`Verified: corpus=${result.payload.corpusId}, seq=${result.payload.sequence}`);
+} else {
+  console.log(`Tampered or missing watermark: ${result.reason}`);
+}
+
+// Recover original content (without watermark)
+const original = stripWatermark(chunk.content);
+```
+
+### Tamper Detection
+
+The watermark creates two layers of tamper detection:
+
+1. **Content modified?** → The watermark signature won't match when recomputed from the modified
+   content
+2. **Watermark stripped?** → `SHA256(content)` won't match the `content_hash` column in the database
+
+### Configuration
+
+| Setting                   | Default  | Description                                  |
+| ------------------------- | -------- | -------------------------------------------- |
+| `WATERMARK_ENABLED`       | `true`   | Set to `false` to disable                    |
+| `WATERMARK_SECRET`        | _(none)_ | HMAC secret for forgery-resistant signatures |
+| `options.watermark`       | `true`   | Programmatic override per ingestion call     |
+| `options.watermarkSecret` | _(none)_ | Programmatic HMAC secret                     |
+
+**Default mode (SHA-256):** Anyone can verify the watermark. Anyone could also forge one. Suitable
+for internal audit trails.
+
+**HMAC mode:** Only holders of the secret can generate valid signatures. Set `WATERMARK_SECRET` for
+production deployments where forgery resistance matters.
+
+## Chunking Algorithm
+
+Corpus documents are split using a heading-aware algorithm:
+
+1. Split on `##` (H2) headings → chunk boundaries
+2. Split on `###` (H3) headings → sub-chunk boundaries
+3. Merge chunks < **75 words** into predecessor
+
+| Constant               | Value                    | Effect                |
+| ---------------------- | ------------------------ | --------------------- |
+| `MIN_CHUNK_WORDS`      | 75                       | Merge threshold       |
+| `EMBEDDING_MODEL`      | `text-embedding-3-large` | OpenAI model          |
+| `EMBEDDING_DIMENSIONS` | 512                      | Matryoshka truncation |
+| `CLAIM_BATCH_SIZE`     | 50                       | Chunks per claim RPC  |
+| `LEASE_SECONDS`        | 600                      | Lease before re-claim |
+| `EMBED_BATCH_SIZE`     | 20                       | Texts per OpenAI call |
+
+## Corpus Document Format
+
+Corpora are Markdown files with YAML frontmatter. See the
+[Authoring Guide](https://github.com/Panopticion/corpora-pipeline/blob/main/corpora/AUTHORING.md)
+for the full specification.
+
+```markdown
+---
+corpus_id: gdpr-core-v1
+title: GDPR Core Requirements
+tier: tier_1
+version: 1
+content_type: prose
+frameworks: [GDPR]
+industries: [fintech, healthcare]
+---
+
+## Data Subject Rights
+
+Organizations must respond to data subject requests within one calendar month...
+```
+
+### Content Types
+
+| Type         | Use Case                                     |
+| ------------ | -------------------------------------------- |
+| `prose`      | Long-form regulatory/guidance text (default) |
+| `boundary`   | Allowed/prohibited behavior rules            |
+| `structured` | JSON payloads embedded in fenced code blocks |
+
+### Tiers
+
+| Tier     | Authority Level    | Examples                   |
+| -------- | ------------------ | -------------------------- |
+| `tier_1` | Regulatory mandate | GDPR, HIPAA, EU AI Act     |
+| `tier_2` | Industry standard  | SOC 2, ISO 27001, NIST CSF |
+| `tier_3` | Best practice      | CIS Benchmarks, OWASP      |
+
+## Testing
+
+```bash
+npm test
+```
+
+Tests use vitest and mock the PostgREST client (via `@supabase/supabase-js`). No database required
+for unit tests.
+
+Current test coverage includes:
+
+- Core pipeline modules (`execute`, `embed`, `concurrency`, `watermark`, content helpers)
+- CLI behavior (`src/cli.test.ts`) for help output, invalid actions, and validate-action smoke test
+- Corpus validator rules (`src/validate.test.ts`) for fact-check gate and substantive-change
+  detection
+
+Run targeted suites:
+
+```bash
+npm run test:cli
+npm run test:validator
+```
+
+## Connect to Your RAG Pipeline
+
+Panopticon handles ingestion. Once your corpora are embedded, you need a **retrieval layer** and a
+**generation layer** — that's your RAG pipeline. Here's how to connect them.
+
+### What Panopticon Produces
+
+After running `ingest_and_embed`, your Postgres database contains:
+
+- **`corpus_documents`** — one row per corpus (metadata, version, content hash, active/inactive)
+- **`corpus_chunks`** — one row per chunk (content, 512d embedding vector, heading path, section
+  title, tier, frameworks, industries)
+- **`corpus_embedding_events`** — immutable log of every embedding operation
+
+### Retrieval: Two SQL Functions
+
+The schema provides two retrieval functions callable via PostgREST RPC or direct SQL:
+
+#### `match_corpus_chunks` — Pure Semantic Search
+
+```sql
+SELECT * FROM match_corpus_chunks(
+  query_embedding        := <your_512d_vector>,  -- text-embedding-3-large, 512d
+  match_count            := 10,
+  match_threshold        := 0.7,
+  filter_tier            := 'tier_1',            -- optional
+  filter_frameworks      := ARRAY['GDPR'],       -- optional
+  filter_industries      := ARRAY['fintech'],    -- optional
+  filter_content_type    := 'prose',             -- optional
+  filter_corpus_ids      := NULL,                -- optional: specific corpora
+  filter_organization_id := NULL                 -- optional: tenant scope
+);
+-- Returns: id, document_id, corpus_id, section_title, content, tier,
+--          content_type, frameworks, industries, segments, similarity
+```
+
+#### `match_corpus_chunks_hybrid` — Vector + Full-Text (RRF)
+
+```sql
+SELECT * FROM match_corpus_chunks_hybrid(
+  query_embedding   := <your_512d_vector>,
+  query_text        := 'data breach notification timeline',
+  match_count       := 10,
+  semantic_weight   := 0.7,  -- 70% vector, 30% full-text
+  filter_tier       := 'tier_1'
+);
+-- Returns: id, content, similarity, text_rank, combined_score
+-- Uses Reciprocal Rank Fusion (k=20) over top-200 candidates
+```
+
+### Calling from Your App (PostgREST RPC)
+
+Since the database is fronted by PostgREST, call these from **any language** via HTTP:
+
+**JavaScript / TypeScript:**
+
+```typescript
+import { createClient } from "@supabase/supabase-js";
+
+const client = createClient(POSTGREST_URL, JWT);
+
+// 1. Embed the user's question (same model + dimensions as ingestion)
+const embeddingRes = await fetch("https://api.openai.com/v1/embeddings", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${OPENAI_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    model: "text-embedding-3-large",
+    input: userQuestion,
+    dimensions: 512,
+  }),
+});
+const { data } = await embeddingRes.json();
+const queryEmbedding = data[0].embedding;
+
+// 2. Retrieve relevant chunks
+const { data: chunks } = await client.rpc("match_corpus_chunks_hybrid", {
+  query_embedding: queryEmbedding,
+  query_text: userQuestion,
+  match_count: 10,
+  semantic_weight: 0.7,
+  filter_frameworks: ["GDPR"],
+});
+
+// 3. Feed into your LLM (generation is your responsibility)
+const context = chunks.map((c) => c.content).join("\n\n");
+const prompt = `Answer based on these regulatory sources:\n\n${context}\n\nQuestion: ${userQuestion}`;
+// → send to OpenAI, Anthropic, Ollama, etc.
+// For production prompt design, see the Prompt Engineering (CFPO) guide: /prompt-engineering
+```
+
+**Python:**
+
+```python
+import httpx, openai
+
+# 1. Embed the question
+resp = openai.embeddings.create(
+    model="text-embedding-3-large",
+    input=user_question,
+    dimensions=512,
+)
+query_embedding = resp.data[0].embedding
+
+# 2. Retrieve chunks via PostgREST
+chunks = httpx.post(
+    f"{POSTGREST_URL}/rpc/match_corpus_chunks_hybrid",
+    headers={"Authorization": f"Bearer {jwt}"},
+    json={
+        "query_embedding": query_embedding,
+        "query_text": user_question,
+        "match_count": 10,
+        "semantic_weight": 0.7,
+    },
+).json()
+
+# 3. Build context for your LLM
+context = "\n\n".join(c["content"] for c in chunks)
+```
+
+**cURL:**
+
+```bash
+curl -X POST "$POSTGREST_URL/rpc/match_corpus_chunks" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query_embedding": [0.012, -0.034, ...],
+    "match_count": 10,
+    "filter_tier": "tier_1"
+  }'
+```
+
+### Important: Use the Same Embedding Model
+
+Your query embedding **must** use the same model and dimensions as ingestion:
+
+| Parameter  | Value                         |
+| ---------- | ----------------------------- |
+| Model      | `text-embedding-3-large`      |
+| Dimensions | `512` (Matryoshka truncation) |
+
+Mismatched models or dimensions will produce meaningless similarity scores.
+
+### Architecture Summary
+
+```
+┌─────────────────────────────────────────────┐
+│              Panopticon AI                  │
+│  Corpus.md → validate → chunk → embed       │
+│  (sovereignty attributed, envelope logged)  │
+└──────────────────┬──────────────────────────┘
+                   │
+                   ▼
+         ┌─────────────────┐
+         │  Postgres 17    │
+         │  + pgvector     │
+         │                 │
+         │  corpus_chunks  │◄── Your app calls:
+         │  (512d vectors) │    match_corpus_chunks()
+         │                 │    match_corpus_chunks_hybrid()
+         └────────┬────────┘
+                  │
+                  ▼
+         ┌─────────────────┐
+         │  Your RAG App   │
+         │                 │
+         │  Retrieve →     │
+         │  Augment →      │
+         │  Generate       │
+         └─────────────────┘
+```
+
+---
+
+
+# API Reference
+
+All public types and functions exported from `@panopticon/corpus-pipeline`.
+
+## Core Types
+
+### `Corpus`
+
+The shape of a corpus document parsed from Markdown + YAML frontmatter.
+
+```typescript
+interface Corpus {
+  corpus_id: string;
+  title: string;
+  tier: string; // "tier_1" | "tier_2" | "tier_3"
+  frameworks: string[];
+  industries: string[];
+  segments: string[];
+  source_url: string;
+  source_publisher: string;
+  last_verified: string;
+  version: string;
+  content_type?: CorpusContentType; // "prose" | "boundary" | "structured"
+  language?: string;
+  fact_check?: CorpusFactCheck;
+  sire?: CorpusSire; // S.I.R.E. identity-first retrieval metadata
+  content: string; // Raw markdown body (no frontmatter)
+  filePath: string;
+}
+```
+
+### `CorpusSire`
+
+S.I.R.E. identity-first retrieval metadata for deterministic post-retrieval enforcement. Optional —
+corpora without it bypass gating entirely. See the [S.I.R.E. guide](/sire) for full documentation.
+
+```typescript
+interface CorpusSire {
+  /** Taxonomic identity anchor — domain label (e.g. "data_protection"). */
+  subject: string;
+  /** Editorial keywords inside this subject domain. Informs search, never vetoes. */
+  included: string[];
+  /** Anti-keywords that strictly disqualify chunks at runtime. The sole enforcement gate. */
+  excluded: string[];
+  /** Cross-framework IDs and version aliases for topological expansion. */
+  relevant: string[];
+}
+```
+
+All four fields are required when `sire` is present. `excluded` and `relevant` may be empty arrays.
+
+### `CorpusChunkRaw`
+
+Output from the chunking algorithm.
+
+```typescript
+interface CorpusChunkRaw {
+  sequence: number; // 0-indexed position
+  section_title: string; // Heading text
+  heading_level: number; // 2 = H2, 3 = H3
+  content: string; // Full chunk content including heading
+  content_hash: string; // SHA-256 of content
+  token_count: number; // Approximate word count
+  heading_path: string[]; // Nesting path, e.g. ["Encryption", "At Rest"]
+}
+```
+
+### `SovereigntyContext`
+
+Required for all embedding operations. Prevents un-attributed vector generation.
+
+```typescript
+interface SovereigntyContext {
+  /** Pipeline run UUID — registered via start_pipeline_run() */
+  runId: string;
+  /** Registered embedding authority UUID */
+  embeddingAuthorityId: string;
+  /** Active egress policy UUID */
+  egressPolicyId: string;
+  /** Organization scope (null = platform) */
+  organizationId?: string;
+  /** Who triggered the run (e.g. "cli", "admin-ui") */
+  triggeredBy: string;
+  /** Authenticated user UUID (null for CLI/service) */
+  userId?: string;
+}
+```
+
+### `PendingChunk`
+
+Shape returned by `claim_corpus_chunks_for_embedding()`.
+
+```typescript
+interface PendingChunk {
+  chunk_id: string;
+  document_id: string;
+  corpus_id: string;
+  section_title: string;
+  content: string;
+  language: string;
+  content_hash: string;
+}
+```
+
+## Pipeline Types
+
+### `CorpusPipelineAction`
+
+```typescript
+type CorpusPipelineAction =
+  | "validate"
+  | "ingest"
+  | "ingest_and_embed"
+  | "embed_pending"
+  | "rechunk"
+  | "ingest_content";
+```
+
+### `CorpusPipelineRequest`
+
+```typescript
+interface CorpusPipelineRequest {
+  action: CorpusPipelineAction;
+  corpus_id?: string;
+  content?: string; // Raw markdown for ingest_content
+}
+```
+
+### `CorpusPipelineResponse`
+
+```typescript
+interface CorpusPipelineResponse {
+  action: CorpusPipelineAction;
+  results?: CorpusPipelineResult[];
+  validations?: CorpusValidationResult[];
+  embedding?: CorpusEmbedResult;
+  summary: CorpusPipelineSummary;
+}
+```
+
+### `CorpusPipelineSummary`
+
+```typescript
+interface CorpusPipelineSummary {
+  total: number;
+  valid: number;
+  ingested: number;
+  embedded: number;
+  errors: number;
+}
+```
+
+## Options Types
+
+### `IngestOptions`
+
+```typescript
+interface IngestOptions {
+  dryRun?: boolean; // Validate only, no writes
+  requireFactCheck?: boolean; // Require verified fact_check (default: true)
+  organizationId?: string; // Tenant scope
+  ingestedBy?: string; // Audit label
+  forceRechunk?: boolean; // Rechunk even if unchanged
+  existing?: ExistingDocument | null;
+}
+```
+
+### `EmbedOptions`
+
+```typescript
+interface EmbedOptions {
+  openaiApiKey: string;
+  sovereignty: SovereigntyContext;
+  maxWaitMs?: number; // Timeout (for Vercel functions)
+  dryRun?: boolean; // Count pending, don't embed
+}
+```
+
+### `PipelineOptions`
+
+```typescript
+interface PipelineOptions extends IngestOptions {
+  openaiApiKey?: string;
+  sovereignty?: SovereigntyContext;
+  skipEmbed?: boolean;
+  maxEmbedWaitMs?: number;
+  onProgress?: (step: string, detail: string) => void;
+}
+```
+
+## Functions
+
+### `executePipelineRequest()`
+
+Top-level entry point. Validates, ingests, and/or embeds based on the action.
+
+```typescript
+function executePipelineRequest(options: {
+  client: SupabaseClient;
+  request: CorpusPipelineRequest;
+  openaiApiKey?: string;
+  sovereignty?: SovereigntyContext;
+  organizationId?: string;
+}): Promise<CorpusPipelineResponse>;
+```
+
+### `registerPipelineRun()`
+
+Registers a pipeline run in the sovereignty attestation table. Must be called before
+`embedDocumentChunks()`.
+
+```typescript
+function registerPipelineRun(
+  client: SupabaseClient,
+  sovereignty: SovereigntyContext,
+): Promise<void>;
+```
+
+### `runPipeline()`
+
+Orchestrates validate → ingest → embed for a single corpus.
+
+```typescript
+function runPipeline(
+  client: SupabaseClient,
+  corpus: Corpus,
+  options?: PipelineOptions,
+): Promise<PipelineResult>;
+```
+
+### `runFullPipeline()`
+
+Runs `runPipeline()` against all corpora.
+
+```typescript
+function runFullPipeline(
+  client: SupabaseClient,
+  corpora: Corpus[],
+  options?: PipelineOptions,
+): Promise<PipelineResult[]>;
+```
+
+### `validateCorpus()`
+
+Validates a single corpus's frontmatter and content.
+
+```typescript
+function validateCorpus(corpus: Corpus): CorpusValidationResult;
+```
+
+### `ingestCorpus()`
+
+Upserts a corpus document and generates chunks.
+
+```typescript
+function ingestCorpus(
+  client: SupabaseClient,
+  corpus: Corpus,
+  options?: IngestOptions,
+): Promise<CorpusIngestResult>;
+```
+
+### `embedDocumentChunks()`
+
+Embeds all pending chunks for a specific document.
+
+```typescript
+function embedDocumentChunks(
+  client: SupabaseClient,
+  documentId: string,
+  options: EmbedOptions,
+): Promise<CorpusEmbedResult>;
+```
+
+### `embedPendingChunks()`
+
+Embeds all globally pending chunks (across all documents).
+
+```typescript
+function embedPendingChunks(
+  client: SupabaseClient,
+  options: EmbedOptions,
+): Promise<CorpusEmbedResult>;
+```
+
+## Content Helpers
+
+### `parseCorpusContent()`
+
+Parses a raw Markdown string (frontmatter + body) into an `Corpus` object.
+
+```typescript
+function parseCorpusContent(raw: string, filePath: string): Corpus;
+```
+
+### `chunkCorpus()`
+
+Splits a corpus's content body into heading-aware chunks.
+
+```typescript
+function chunkCorpus(corpus: Corpus): CorpusChunkRaw[];
+```
+
+### `hashCorpusContent()`
+
+Returns the SHA-256 hash of the corpus's content body.
+
+```typescript
+function hashCorpusContent(content: string): string;
+```
+
+### `hasSubstantiveChanges()`
+
+Compares a corpus against an existing document to detect substantive changes (content hash, version,
+title, tier, frameworks, etc.).
+
+```typescript
+function hasSubstantiveChanges(corpus: Corpus, existing: ExistingDocument): boolean;
+```
+
+## Envelope Functions
+
+### `recordPipelineEnvelope()`
+
+Records an audit envelope for a pipeline run.
+
+```typescript
+function recordPipelineEnvelope(client: SupabaseClient, context: EnvelopeContext): Promise<void>;
+```
+
+### `recordEmbedEnvelope()`
+
+Records an envelope specifically for embedding operations.
+
+```typescript
+function recordEmbedEnvelope(client: SupabaseClient, context: EnvelopeContext): Promise<void>;
+```
+
+### `recordErrorEnvelope()`
+
+Records an envelope for pipeline errors.
+
+```typescript
+function recordErrorEnvelope(
+  client: SupabaseClient,
+  context: EnvelopeContext,
+  error: Error,
+): Promise<void>;
+```
+
+## Provenance Watermarking
+
+### `WatermarkParams`
+
+Input for watermark generation.
+
+```typescript
+interface WatermarkParams {
+  corpusId: string;
+  sequence: number;
+  /** SHA-256 hex of the original (un-watermarked) chunk content */
+  contentHash: string;
+  /** Optional HMAC secret. Uses HMAC-SHA256 instead of plain SHA-256 when set. */
+  secret?: string;
+}
+```
+
+### `WatermarkPayload`
+
+Extracted watermark data.
+
+```typescript
+interface WatermarkPayload {
+  version: string; // "v1"
+  corpusId: string; // e.g. "gdpr-core-v1"
+  sequence: number; // chunk sequence within document
+  signature: string; // 16-char hex signature
+}
+```
+
+### `WatermarkVerification`
+
+Result of verifying a chunk's watermark.
+
+```typescript
+interface WatermarkVerification {
+  valid: boolean;
+  payload: WatermarkPayload | null;
+  reason?: string; // If invalid, explains why
+}
+```
+
+### `injectWatermark()`
+
+Inject a provenance watermark into chunk content. Idempotent — re-injection produces the same
+result.
+
+```typescript
+function injectWatermark(content: string, params: WatermarkParams): string;
+```
+
+### `verifyChunkWatermark()`
+
+Verify a chunk's watermark integrity. Self-contained — no database access needed.
+
+```typescript
+function verifyChunkWatermark(content: string, secret?: string): WatermarkVerification;
+```
+
+**Verification loop:** Extract watermark → strip it → SHA-256 the stripped content → recompute
+expected signature → compare.
+
+### `extractWatermark()`
+
+Extract the watermark payload from chunk content, or `null` if absent.
+
+```typescript
+function extractWatermark(content: string): WatermarkPayload | null;
+```
+
+### `stripWatermark()`
+
+Remove the watermark comment from chunk content. Returns the original un-watermarked content.
+
+```typescript
+function stripWatermark(content: string): string;
+```
+
+### `generateSignature()`
+
+Generate the watermark signature. First 16 hex chars of SHA-256 (or HMAC-SHA-256 with secret).
+
+```typescript
+function generateSignature(params: WatermarkParams): string;
+```
+
+### `buildWatermarkComment()`
+
+Generate the full watermark HTML comment string.
+
+```typescript
+function buildWatermarkComment(params: WatermarkParams): string;
+// → "<!-- corpus-watermark:v1:gdpr-core-v1:3:a1b2c3d4e5f67890 -->"
+```
+
+### Watermark Constants
+
+| Constant            | Value                          | Description                      |
+| ------------------- | ------------------------------ | -------------------------------- |
+| `WATERMARK_VERSION` | `v1`                           | Current watermark format version |
+| `WATERMARK_PREFIX`  | `corpus-watermark`             | Comment prefix for detection     |
+| `WATERMARK_REGEX`   | `/<!-- corpus-watermark:...>/` | Regex to extract watermark       |
+
+## Concurrency Utilities
+
+### `mapWithConcurrency()`
+
+Maps an array through an async function with bounded concurrency.
+
+```typescript
+function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]>;
+```
+
+### `mapSettledWithConcurrency()`
+
+Like `mapWithConcurrency` but returns `PromiseSettledResult` for each item.
+
+```typescript
+function mapSettledWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]>;
+```
+
+## Constants
+
+| Constant                 | Value                    | Description                      |
+| ------------------------ | ------------------------ | -------------------------------- |
+| `EMBEDDING_MODEL`        | `text-embedding-3-large` | OpenAI model                     |
+| `EMBEDDING_DIMENSIONS`   | `512`                    | Matryoshka truncation            |
+| `CHUNK_BATCH_SIZE`       | `50`                     | Chunks per Supabase batch insert |
+| `EMBED_BATCH_SIZE`       | `20`                     | Texts per OpenAI API call        |
+| `FETCH_BATCH_SIZE`       | `100`                    | Chunks per page fetch            |
+| `CLAIM_BATCH_SIZE`       | `50`                     | Chunks per claim RPC             |
+| `LEASE_SECONDS`          | `600`                    | Lease duration (seconds)         |
+| `EMBED_RETRY_BASE_MS`    | `1000`                   | Backoff base (ms)                |
+| `EMBED_MAX_RETRIES`      | `2`                      | Max retries on transient errors  |
+| `PIPELINE_CONCURRENCY`   | `3`                      | Concurrent corpus processing     |
+| `EXTRACTION_CONCURRENCY` | `5`                      | Concurrent Tavily extractions    |
+
+---
+
+
+# S.I.R.E. — Identity-First Retrieval
+
+**Semantic meaning is not jurisdictional authority.** Embeddings can't deduce legal boundaries from
+text. S.I.R.E. is deterministic identity metadata in corpus frontmatter that enables post-retrieval
+enforcement.
+
+## The Problem: Context Collapse
+
+Query: "access control requirements under GDPR." Semantic search returns chunks from GDPR, HIPAA,
+SOC 2, and ISO 27001 — because they're all _about_ access control. The embeddings are close. The LLM
+gets a bucket of jurisdictionally orphaned chunks and stitches them into a fluent answer that mixes
+EU data protection law with US healthcare regulations.
+
+**Context Collapse**: semantically close, jurisdictionally wrong. The output reads authoritative.
+It's legally incoherent.
+
+**Why you can't train your way out of this:**
+
+- Bi-encoder dense retrievers perform at or below random on negation-sensitive ranking
+- Single-vector embeddings hit expressiveness ceilings — for any fixed dimension, there exist
+  relevance sets they can't represent
+- Dense similarity can't enforce Boolean-style exclusion
+
+Semantic retrieval is good at discovery. It can't do enforcement.
+
+## The Solution: Separate Discovery from Enforcement
+
+S.I.R.E. adds four identity fields to every corpus document. The pipeline parses them from
+frontmatter, stores them on both `corpus_documents` and `corpus_chunks` (denormalized, zero JOINs),
+and returns them with every search result. Your application layer enforces the boundaries.
+
+```yaml
+sire:
+  subject: data_protection
+  included: [personal data, data subject, controller, processor, DPIA]
+  excluded: [PHI, covered entity, business associate, HIPAA]
+  relevant: [ISO-27001:A.8, SOC2:CC6.1, CCPA]
+```
+
+### The Four Pillars
+
+| Pillar       | Role              | Enforces? | What it does                                                        |
+| ------------ | ----------------- | --------- | ------------------------------------------------------------------- |
+| **Subject**  | Identity anchor   | No        | Domain label (e.g. `data_protection`). Grouping and prompt headers. |
+| **Included** | Search enrichment | No        | Keywords inside this domain. Strengthens discovery. Never vetoes.   |
+| **Relevant** | Topology mapping  | No        | Cross-framework IDs for crosswalk expansion. Connects domains.      |
+| **Excluded** | Hard boundary     | **Yes**   | Anti-keywords that disqualify chunks. The sole enforcement gate.    |
+
+The asymmetry is deliberate:
+
+- **Subject** anchors identity
+- **Included** and **Relevant** inform discovery and topology
+- **Excluded** is the only pillar that purges evidence
+
+**Only `excluded` enforces. Everything else informs.**
+
+## Adding S.I.R.E. to Your Corpus
+
+Add a `sire:` block to your corpus frontmatter:
+
+```markdown
+---
+corpus_id: gdpr-core-v1
+title: GDPR Core Requirements
+tier: tier_1
+version: 1
+frameworks: [GDPR]
+industries: [fintech, healthcare, saas]
+fact_check:
+  status: verified
+  checked_at: "2026-01-10"
+  checked_by: Compliance Team
+sire:
+  subject: data_protection
+  included: [personal data, data subject, controller, processor, DPIA, consent, lawful basis]
+  excluded: [PHI, covered entity, business associate, HIPAA, ePHI]
+  relevant: [ISO-27001:A.8, SOC2:CC6.1, CCPA]
+---
+
+## Data Subject Rights
+
+...
+```
+
+### How to Choose Your Arrays
+
+**`subject`** — Lowercase snake_case domain label. What jurisdiction does this corpus represent?
+
+| Corpus Type             | Example Subject                 |
+| ----------------------- | ------------------------------- |
+| GDPR regulation         | `data_protection`               |
+| HIPAA compliance        | `health_information_protection` |
+| SOC 2 controls          | `trust_services_criteria`       |
+| AI governance           | `ai_governance_boundaries`      |
+| Cross-framework mapping | `cross_framework_mapping`       |
+
+**`included`** — Keywords inside this domain. If a chunk has these terms, it's likely governed by
+this framework.
+
+```yaml
+# GDPR corpus
+included: [personal data, data subject, controller, processor, DPIA, consent]
+
+# HIPAA corpus
+included: [PHI, ePHI, covered entity, business associate, minimum necessary]
+```
+
+**`excluded`** — Keywords from a _different_ domain. If a chunk has these terms, it crossed a
+boundary.
+
+```yaml
+# GDPR corpus excludes HIPAA terms
+excluded: [PHI, covered entity, business associate, HIPAA, ePHI]
+
+# HIPAA corpus excludes GDPR terms
+excluded: [data subject, controller, processor, GDPR, DPIA, lawful basis]
+```
+
+**`relevant`** — Cross-framework references for topology expansion. Framework IDs or version
+aliases.
+
+```yaml
+relevant: [ISO-27001:A.8, SOC2:CC6.1, CCPA]
+```
+
+### When `excluded` Should Be Empty
+
+Some corpora span frameworks on purpose:
+
+- **Crosswalks** map equivalent concepts between GDPR, HIPAA, and SOC 2 — they ARE the bridge. Empty
+  `excluded` is correct.
+- **Governance documents** (AI usage boundaries, risk frameworks) span frameworks by design.
+- **Meta-documents** describing S.I.R.E. itself have no boundary to enforce.
+
+```yaml
+# Crosswalk corpus — empty excluded is correct
+sire:
+  subject: cross_framework_mapping
+  included: [crosswalk, access control, encryption, breach notification]
+  excluded: []
+  relevant: [GDPR, HIPAA, SOC2]
+```
+
+## Database Storage
+
+Separate columns (not JSONB) on both `corpus_documents` and `corpus_chunks`:
+
+```sql
+-- On both tables:
+sire_subject    TEXT,                        -- Domain label
+sire_included   TEXT[] NOT NULL DEFAULT '{}', -- Search enrichment keywords
+sire_excluded   TEXT[] NOT NULL DEFAULT '{}', -- Deterministic enforcement gate
+sire_relevant   TEXT[] NOT NULL DEFAULT '{}', -- Cross-framework topology
+```
+
+GIN indexes on `sire_excluded` and `sire_included` for fast containment queries.
+
+Denormalized into chunks — same pattern as `frameworks`, `industries`, `segments`. No JOINs at
+retrieval time.
+
+## Retrieval
+
+Both retrieval functions return S.I.R.E. columns with every result:
+
+```sql
+SELECT
+  id, corpus_id, content, similarity,
+  sire_subject, sire_included, sire_excluded, sire_relevant
+FROM match_corpus_chunks_hybrid(
+  query_embedding := <vector>,
+  query_text      := 'data breach notification requirements',
+  match_count     := 20
+);
+```
+
+The retrieval functions don't filter on S.I.R.E. They return everything. Enforcement happens in your
+application layer, after retrieval, before synthesis.
+
+## Enforcement Pattern
+
+**Bottom-Up Discovery, Top-Down Enforcement.**
+
+### 1. Bottom-Up Discovery
+
+Query hits hybrid search. Postgres returns candidate chunks ranked by semantic + lexical similarity.
+These are probabilistic votes — they suggest which identities are relevant.
+
+### 2. Identity Collapse
+
+Group returned chunks by `sire_subject`. Rank subjects by mean similarity. The winning subjects are
+what your query is about.
+
+### 3. Top-Down Enforcement
+
+For each winning subject, load its `sire_excluded` array. Walk the candidate pool. Disqualify any
+chunk whose content contains an excluded term. Deterministic, not probabilistic.
+
+```typescript
+function enforceExclusions(
+  chunks: RetrievedChunk[],
+  winningSubject: string,
+  excluded: string[],
+): RetrievedChunk[] {
+  if (excluded.length === 0) return chunks; // Empty = no gating
+
+  return chunks.filter((chunk) => {
+    const lower = chunk.content.toLowerCase();
+    return !excluded.some((term) => new RegExp(`\\b${escapeRegex(term)}\\b`, "iu").test(lower));
+  });
+}
+```
+
+### 4. Synthesis
+
+The LLM gets only chunks that survived the gate, organized by identity. No jurisdictional bleed.
+
+## Graceful Degradation
+
+S.I.R.E. is built for progressive deployment, not big-bang migration:
+
+| Scenario                                         | Behavior                                                                        |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Corpus has no `sire:` block                      | Bypasses gating. Standard RAG.                                                  |
+| `excluded` is empty                              | No enforcement. Chunk passes all gates.                                         |
+| All chunks purged                                | Flag `SUSPICIOUS_PURGE` — excluded array may be over-tuned.                     |
+| Mixed corpora (some with S.I.R.E., some without) | Gated and ungated coexist. Enforcement only hits chunks with identity metadata. |
+
+Add S.I.R.E. to your highest-liability corpora first. Leave everything else ungated. The system
+degrades gracefully at every stage.
+
+## TypeScript Type
+
+```typescript
+export interface CorpusSire {
+  /** Domain label (e.g. "data_protection"). */
+  subject: string;
+  /** Keywords inside this domain. Informs search, never vetoes. */
+  included: string[];
+  /** Anti-keywords that disqualify chunks at runtime. The sole enforcement gate. */
+  excluded: string[];
+  /** Cross-framework IDs for topological expansion. */
+  relevant: string[];
+}
+```
+
+Available as `CorpusSire` from `@panopticon/corpus-pipeline`.
+
+## Sample Corpora
+
+All 6 sample corpora ship with S.I.R.E. metadata:
+
+| Corpus                         | Subject                             | Key Exclusions                 |
+| ------------------------------ | ----------------------------------- | ------------------------------ |
+| `gdpr-core-v1`                 | `data_protection`                   | PHI, covered entity, HIPAA     |
+| `healthcare-compliance-v1`     | `health_information_protection`     | data subject, controller, GDPR |
+| `soc2-controls-structured-v1`  | `trust_services_criteria`           | data subject, PHI, GDPR, HIPAA |
+| `ai-usage-boundaries-v1`       | `ai_governance_boundaries`          | _(empty — spans frameworks)_   |
+| `crosswalk-gdpr-hipaa-soc2-v1` | `cross_framework_mapping`           | _(empty — IS the bridge)_      |
+| `identity-first-retrieval-v1`  | `identity_enforcement_architecture` | _(empty — meta-document)_      |
+
+Run `npx tsx src/cli.ts --action validate` to see them all pass.
+
+## Further Reading
+
+- [Corpus Authoring Guide](https://github.com/Panopticion/corpora-pipeline/blob/main/corpora/AUTHORING.md)
+  — Full frontmatter reference including S.I.R.E. fields
+- [API Reference](/api) — `CorpusSire` type and pipeline functions
+- [Pipeline Guide](/guide) — End-to-end architecture walkthrough
+
+---
+
+
+# MCP Server
+
+The pipeline ships an [MCP](https://modelcontextprotocol.io/) server that exposes corpus search and watermark verification as tools. Any MCP client — Claude Desktop, Claude Code, or your own — can use them.
+
+Two tools. No API server to deploy. Reads directly from your existing Postgres.
+
+## Tools
+
+### `search_compliance_corpus`
+
+Semantic search over your sovereignty-attributed vector store. Takes a natural language query, embeds it via OpenAI, and calls `match_corpus_chunks` against pgvector.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `query` | string | Yes | Natural language query |
+| `frameworks` | string[] | No | Filter by framework (GDPR, HIPAA, SOC2) |
+| `tier` | string | No | Authority level: `tier_1`, `tier_2`, `tier_3` |
+| `match_count` | number | No | Max results (default: 10, max: 50) |
+
+Returns attributed chunks with:
+- Corpus ID, section title, content
+- Tier, content type, frameworks, industries
+- Similarity score
+- S.I.R.E. metadata (subject, included, excluded, relevant)
+
+### `verify_chunk_provenance`
+
+Verifies a chunk's provenance watermark. No database access required — verification is self-contained.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `content` | string | Yes | Chunk content including watermark comment |
+| `secret` | string | No | HMAC secret for HMAC-SHA256 watermarks |
+
+Returns:
+- `valid` — whether the watermark signature matches
+- `payload` — corpus ID, chunk sequence, watermark version
+- `reason` — why verification failed (if invalid)
+
+## Setup
+
+### 1. Environment Variables
+
+```bash
+POSTGREST_URL=https://your-project.supabase.co    # Required for search
+PIPELINE_ADMIN_KEY=your-service-role-key           # Required for search
+OPENAI_API_KEY=sk-...                              # Required for search
+WATERMARK_SECRET=optional-hmac-secret              # Optional
+```
+
+The search tool needs all three. The verify tool works without any of them (offline verification).
+
+### 2. Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "panopticon": {
+      "command": "npx",
+      "args": ["tsx", "/path/to/corpora-pipeline/src/mcp-server.ts"],
+      "env": {
+        "POSTGREST_URL": "https://your-project.supabase.co",
+        "PIPELINE_ADMIN_KEY": "your-service-role-key",
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop. Both tools appear in the tool picker.
+
+### 3. Claude Code
+
+Add to `.claude/settings.json` or run:
+
+```bash
+claude mcp add panopticon -- npx tsx /path/to/corpora-pipeline/src/mcp-server.ts
+```
+
+Set the environment variables in your shell before launching Claude Code.
+
+### 4. Any MCP Client
+
+The server uses stdio transport. Pipe JSON-RPC messages to stdin:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | npx tsx src/mcp-server.ts
+```
+
+## How Search Works
+
+The MCP server doesn't just pass your query to the database. It:
+
+1. **Embeds your query** via OpenAI `text-embedding-3-large` (512d Matryoshka) — same model used for corpus embeddings
+2. **Calls `match_corpus_chunks`** RPC with the vector + your filters
+3. **Returns attributed results** — every chunk traces to a registered authority and egress policy
+
+S.I.R.E. metadata is included in every result. Your application layer decides whether to enforce the `excluded` gate — the MCP server returns the data, not the policy decision.
+
+## Example
+
+Ask Claude: *"What are the data subject rights under GDPR?"*
+
+Claude calls `search_compliance_corpus` with `query: "data subject rights under GDPR"`. The tool returns chunks from `gdpr-core-v1` with tier, frameworks, and S.I.R.E. metadata. HIPAA chunks that are semantically similar but jurisdictionally wrong are still returned — with `sire_excluded` terms that flag them as cross-boundary.
+
+Then ask: *"Verify this chunk hasn't been tampered with"* and paste any watermarked chunk content. Claude calls `verify_chunk_provenance` and confirms integrity without touching the database.
+
+---
+
+
+# System Prompt Engineering
+
+You've ingested and embedded compliance knowledge. Now you need your LLM to **use** it correctly —
+cite sources, respect tier authority, refuse when the knowledge base has gaps, and never hallucinate
+regulatory advice.
+
+This guide introduces **CFPO (Compliance-First Prompt Orchestration)**, a system prompt structure
+designed for AI systems that retrieve from attributed vector stores. It works with any LLM (OpenAI,
+Anthropic, Ollama, Mistral, etc.) and any framework (LangChain, LlamaIndex, Vercel AI SDK, or raw
+HTTP).
+
+## The Problem
+
+Most RAG tutorials show this pattern:
+
+```typescript
+const prompt = `Answer based on these sources:\n\n${context}\n\nQuestion: ${question}`;
+```
+
+This works for demos. It fails for compliance because:
+
+1. **No source citation** — the model can't distinguish which chunk answered which part of the
+   question
+2. **No authority hierarchy** — a tier_3 best practice is weighted the same as a tier_1 regulatory
+   mandate
+3. **No refusal behavior** — the model guesses when the knowledge base doesn't have an answer
+4. **No enforcement calibration** — without paired examples, the model drifts from rules over long
+   conversations
+
+## CFPO: Five Sections, Strict Order
+
+CFPO structures every system prompt into five sections, always in this order:
+
+```
+┌─────────────────────────────────────────────┐
+│  1. VOICE       — Who the AI is             │
+│  2. MISSION     — What it must accomplish    │
+│  3. RULES       — Constraints it must obey   │
+│  4. ENFORCEMENT — ❌/✓ paired examples       │
+│  5. OUTPUT      — Exact response format      │
+└─────────────────────────────────────────────┘
+```
+
+The ordering matters. Models process system prompts sequentially — identity and mission context
+established first reduces downstream rule violations. Enforcement examples near the end anchor
+behavior right before generation begins.
+
+### Why This Order?
+
+| Position | Section         | Rationale                                                                                                                                            |
+| -------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First    | **Voice**       | Establishes persona before any behavioral rules — the model "knows who it is" before being told what to do                                           |
+| Second   | **Mission**     | Scopes the task — rules that follow are interpreted in this context, not in the abstract                                                             |
+| Middle   | **Rules**       | Machine-parseable constraints. Placed after mission so the model understands _why_ the rules exist                                                   |
+| Late     | **Enforcement** | Paired ❌/✓ examples are the highest-ROI calibration signal. Placed near the generation boundary so they're freshest in the model's attention window |
+| Last     | **Output**      | Format contract. Last position = last thing the model "reads" before generating — reduces format drift                                               |
+
+## Starter Template
+
+Here's a complete CFPO system prompt for a compliance assistant backed by Panopticon chunks. Copy
+this and adapt it.
+
+````markdown
+———————————————————————————————————————
+
+## Voice — COMPLIANCE ASSISTANT
+
+———————————————————————————————————————
+
+You are a compliance knowledge assistant. You answer questions about regulatory requirements using
+ONLY the retrieved context provided below. You do not have independent compliance knowledge — if the
+context doesn't contain the answer, you say so.
+
+You cite your sources by corpus ID and section title. You never present compliance guidance without
+attribution.
+
+———————————————————————————————————————
+
+## Mission — GROUNDED REGULATORY Q&A
+
+———————————————————————————————————————
+
+Answer the user's compliance question using the retrieved corpus chunks. Your response must:
+
+1. Be grounded in the provided context — no external knowledge
+2. Cite the source corpus for every claim (corpus_id + section_title)
+3. Distinguish between regulatory mandates (tier_1), industry standards (tier_2), and best practices
+   (tier_3)
+4. Refuse to answer when the context is insufficient
+
+———————————————————————————————————————
+
+## Rules — RETRIEVAL GROUNDING
+
+———————————————————————————————————————
+
+```yaml
+grounding_policy:
+  source: retrieved_corpus_chunks_only
+  external_knowledge: prohibited
+  citation_required: always
+  citation_format: "[corpus_id § section_title]"
+
+tier_authority:
+  tier_1: "Regulatory mandate — MUST language"
+  tier_2: "Industry standard — SHOULD language"
+  tier_3: "Best practice — MAY / CONSIDER language"
+  mixing: "When chunks from multiple tiers apply, present tier_1 first"
+
+refusal_conditions:
+  - no_relevant_chunks:
+      "I don't have regulatory guidance on that topic in my current knowledge base."
+  - low_similarity:
+      "The available context may not directly address your question. Here's what I found, but verify
+      with primary sources."
+  - conflicting_chunks: "Present both positions with citations. Do not resolve the conflict."
+
+metadata_usage:
+  frameworks: "Use to scope answers (e.g., 'Under GDPR...' vs 'Under HIPAA...')"
+  industries: "Use to contextualize when the user's industry is known"
+  content_type: "boundary chunks define hard rules; prose chunks provide guidance"
+```
+
+———————————————————————————————————————
+
+## Enforcement — GROUNDING EXAMPLES
+
+———————————————————————————————————————
+
+❌ VIOLATIONS:
+
+- "Companies must notify within 72 hours" → Missing citation. Which regulation? Which corpus?
+- "HIPAA requires encryption at rest" → Not grounded. This may be true but if no retrieved chunk
+  says it, you cannot claim it.
+- "Based on best practices, you must implement MFA" → Tier confusion. Best practices (tier_3) use
+  MAY/CONSIDER, not "must."
+- "I think the GDPR says..." → Hedging without citation. Either the context supports the claim (cite
+  it) or it doesn't (refuse).
+
+✓ VALID:
+
+- "Under GDPR Article 33, organizations must notify the supervisory authority within 72 hours of
+  becoming aware of a personal data breach [gdpr-core-v1 § Data Breach Notification]." → Grounded,
+  cited, tier_1 MUST language.
+- "SOC 2 Trust Services Criteria recommend implementing change management controls
+  [soc2-controls-structured-v1 § Change Management]. This is an industry standard (tier_2), not a
+  regulatory mandate." → Tier clearly identified.
+- "I don't have specific guidance on PCI-DSS in my current knowledge base. The retrieved context
+  covers GDPR and HIPAA but not payment card standards." → Honest refusal with explanation of what
+  IS available.
+- "Two frameworks address this differently: GDPR requires explicit consent [gdpr-core-v1 § Consent],
+  while HIPAA permits processing under the Treatment, Payment, and Health Care Operations exception
+  [healthcare-compliance-v1 § TPO Exception]. Check which framework applies to your use case." →
+  Conflicting sources presented without resolution.
+
+———————————————————————————————————————
+
+## Output — RESPONSE FORMAT
+
+———————————————————————————————————————
+
+```yaml
+response_format:
+  structure:
+    - answer: "Direct answer to the question, grounded in context"
+    - citations: "Inline [corpus_id § section] references"
+    - tier_note: "State the authority level when relevant"
+    - caveats: "Flag when context is partial or multiple frameworks apply"
+
+  prohibited:
+    - Legal advice framing ("You should...", "Your organization must...")
+    - Unattributed regulatory claims
+    - Confidence scores or probability language
+    - Advice beyond what the retrieved chunks support
+```
+````
+
+## Injecting Retrieved Chunks
+
+The system prompt above defines _behavior_. The retrieved chunks provide _knowledge_. Inject them as
+a clearly delimited block in the user message or as a separate system message:
+
+### Option A: Chunks in User Message (Recommended)
+
+```typescript
+import { createClient } from "@supabase/supabase-js";
+
+const client = createClient(POSTGREST_URL, PIPELINE_ADMIN_KEY);
+
+// 1. Embed the user's question
+const queryEmbedding = await embedQuestion(userQuestion);
+
+// 2. Retrieve attributed chunks
+const { data: chunks } = await client.rpc("match_corpus_chunks_hybrid", {
+  query_embedding: queryEmbedding,
+  query_text: userQuestion,
+  match_count: 8,
+  semantic_weight: 0.7,
+  filter_tier: "tier_1", // optional: only regulatory mandates
+});
+
+// 3. Format chunks with attribution metadata
+const context = chunks
+  .map(
+    (c, i) =>
+      `[Source ${i + 1}] corpus_id: ${c.corpus_id} | section: ${c.section_title} | tier: ${c.tier}\n${c.content}`,
+  )
+  .join("\n\n---\n\n");
+
+// 4. Build the message array
+const messages = [
+  { role: "system", content: CFPO_SYSTEM_PROMPT },
+  {
+    role: "user",
+    content: `## Retrieved Context\n\n${context}\n\n---\n\n## Question\n\n${userQuestion}`,
+  },
+];
+```
+
+### Option B: Chunks as a Separate System Message
+
+Some models (Claude, GPT-4) handle multi-system-message formats. This separates behavior
+instructions from knowledge:
+
+```typescript
+const messages = [
+  { role: "system", content: CFPO_SYSTEM_PROMPT },
+  { role: "system", content: `## Retrieved Corpus Chunks\n\n${context}` },
+  { role: "user", content: userQuestion },
+];
+```
+
+### Why Option A is Usually Better
+
+- Works with every LLM API (some only support one system message)
+- The `## Retrieved Context` / `## Question` delimiters make chunk boundaries unambiguous
+- Models attend to user messages more consistently than to multiple system messages
+- The system prompt stays cacheable (same across requests) while the user message varies
+
+## Formatting Chunks for Maximum Retrieval Quality
+
+How you format the injected chunks affects answer quality. Include the metadata — the model needs it
+for citation and tier authority:
+
+```typescript
+function formatChunksForPrompt(chunks: CorpusChunk[]): string {
+  return chunks
+    .map((chunk, i) => {
+      const header = [
+        `[Source ${i + 1}]`,
+        `corpus_id: ${chunk.corpus_id}`,
+        `section: ${chunk.section_title}`,
+        `tier: ${chunk.tier}`,
+        chunk.frameworks?.length ? `frameworks: ${chunk.frameworks.join(", ")}` : null,
+        chunk.content_type ? `type: ${chunk.content_type}` : null,
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      return `${header}\n${chunk.content}`;
+    })
+    .join("\n\n---\n\n");
+}
+```
+
+### What to Include
+
+| Field           | Include?           | Why                                                                                     |
+| --------------- | ------------------ | --------------------------------------------------------------------------------------- |
+| `corpus_id`     | **Always**         | The model needs this to generate citations                                              |
+| `section_title` | **Always**         | Enables `[corpus_id § section]` citation format                                         |
+| `tier`          | **Always**         | Drives MUST/SHOULD/MAY language selection                                               |
+| `content`       | **Always**         | The actual knowledge                                                                    |
+| `frameworks`    | **When filtering** | Helps the model scope answers to the right regulation                                   |
+| `content_type`  | **Sometimes**      | Useful when mixing prose, boundary, and structured chunks                               |
+| `similarity`    | **No**             | The model doesn't need to know retrieval scores — it creates false confidence anchoring |
+| `heading_path`  | **No**             | Redundant with section_title for most use cases                                         |
+
+## Adapting CFPO for Your Use Case
+
+The starter template is for a general compliance Q&A assistant. Here's how to adapt each section for
+specific scenarios:
+
+### Internal Policy Assistant
+
+Change **Voice** to reference your organization. Change **Rules** to scope to internal corpora only:
+
+```yaml
+grounding_policy:
+  source: retrieved_corpus_chunks_only
+  scope: "internal policy documents only — do not reference external regulations"
+  citation_format: "[policy_id § section]"
+
+tier_authority:
+  tier_1: "Board-approved policy — MUST comply"
+  tier_2: "Department standard — SHOULD follow"
+  tier_3: "Team guidance — RECOMMENDED"
+```
+
+### Multi-Jurisdiction Compliance
+
+Add a jurisdiction rule to prevent cross-contamination:
+
+```yaml
+jurisdiction_policy:
+  behavior: "Never apply one jurisdiction's rules to another"
+  example: "GDPR consent requirements do not apply to US-only operations unless explicitly stated"
+  user_jurisdiction: "{{USER_JURISDICTION}}" # injected at runtime
+```
+
+### Audit Preparation
+
+Change **Output** to produce structured evidence:
+
+```yaml
+response_format:
+  structure:
+    - finding: "The specific compliance question or concern"
+    - evidence: "Exact quotes from retrieved chunks with citations"
+    - gap_analysis: "What the knowledge base covers vs. what's missing"
+    - recommendation: "Next steps (always qualified as non-legal-advice)"
+  format: markdown_with_tables
+```
+
+### Chatbot with Compliance Guardrails
+
+If your AI assistant isn't _primarily_ a compliance tool but needs to respect regulatory boundaries,
+use a lighter CFPO structure:
+
+```yaml
+grounding_policy:
+  source: retrieved_corpus_chunks_when_relevant
+  fallback:
+    "Answer from general knowledge but flag when a compliance question would benefit from verified
+    sources"
+  citation_required: when_making_regulatory_claims
+```
+
+## Variable Injection
+
+CFPO templates support `{{VARIABLE}}` placeholders that are resolved at runtime. This lets you reuse
+one system prompt across contexts:
+
+```typescript
+const systemPrompt = compileCFPO(template, {
+  ORGANIZATION_NAME: "Acme Corp",
+  USER_JURISDICTION: "EU",
+  ALLOWED_FRAMEWORKS: "GDPR, SOC 2",
+  RESPONSE_LANGUAGE: "English",
+});
+```
+
+Common variables:
+
+| Variable                 | Purpose                                      | Example                          |
+| ------------------------ | -------------------------------------------- | -------------------------------- |
+| `{{ORGANIZATION_NAME}}`  | Personalize voice section                    | "Acme Corp Compliance Assistant" |
+| `{{USER_JURISDICTION}}`  | Scope regulatory answers                     | "EU", "US-CA", "global"          |
+| `{{ALLOWED_FRAMEWORKS}}` | Filter which frameworks the model references | "GDPR, HIPAA"                    |
+| `{{RESPONSE_LANGUAGE}}`  | Multilingual support                         | "German", "Japanese"             |
+| `{{CURRENT_DATE}}`       | Date-sensitive compliance questions          | "2026-02-25"                     |
+
+## Full Working Example
+
+End-to-end: retrieve chunks from Panopticon, inject them with CFPO, call OpenAI.
+
+```typescript
+import { createClient } from "@supabase/supabase-js";
+import OpenAI from "openai";
+
+// ── Setup ──────────────────────────────────────────────────
+const db = createClient(process.env.POSTGREST_URL!, process.env.PIPELINE_ADMIN_KEY!);
+const openai = new OpenAI();
+
+// ── CFPO System Prompt ─────────────────────────────────────
+const SYSTEM_PROMPT = `You are a compliance knowledge assistant for {{ORG}}.
+
+You answer questions using ONLY the retrieved corpus chunks below.
+You cite every claim as [corpus_id § section_title].
+You use MUST for tier_1, SHOULD for tier_2, MAY for tier_3.
+You refuse when the context doesn't support an answer.
+
+Do not provide legal advice. Do not hallucinate regulatory requirements.`.replace(
+  "{{ORG}}",
+  process.env.ORG_NAME ?? "your organization",
+);
+
+// ── Retrieve + Generate ────────────────────────────────────
+async function answerComplianceQuestion(question: string): Promise<string> {
+  // 1. Embed the question
+  const embeddingRes = await openai.embeddings.create({
+    model: "text-embedding-3-large",
+    input: question,
+    dimensions: 512,
+  });
+  const queryEmbedding = embeddingRes.data[0].embedding;
+
+  // 2. Retrieve from Panopticon
+  const { data: chunks } = await db.rpc("match_corpus_chunks_hybrid", {
+    query_embedding: queryEmbedding,
+    query_text: question,
+    match_count: 8,
+    semantic_weight: 0.7,
+  });
+
+  // 3. Format chunks with metadata
+  const context = (chunks ?? [])
+    .map(
+      (c: any, i: number) =>
+        `[Source ${i + 1}] ${c.corpus_id} § ${c.section_title} (tier: ${c.tier})\n${c.content}`,
+    )
+    .join("\n\n---\n\n");
+
+  // 4. Generate with CFPO
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: `## Retrieved Context\n\n${context}\n\n---\n\n## Question\n\n${question}`,
+      },
+    ],
+    temperature: 0.1, // low temp for compliance accuracy
+  });
+
+  return completion.choices[0].message.content ?? "No response generated.";
+}
+
+// ── Usage ──────────────────────────────────────────────────
+const answer = await answerComplianceQuestion(
+  "What are the GDPR requirements for data breach notification?",
+);
+console.log(answer);
+```
+
+## Key Principles
+
+1. **Separate behavior from knowledge.** The system prompt defines _how_ the model should behave.
+   The retrieved chunks provide _what_ it knows. Never mix them.
+
+2. **Always include metadata.** The model needs `corpus_id`, `section_title`, and `tier` to cite
+   sources and calibrate authority language. Omitting metadata makes grounding impossible.
+
+3. **Paired examples beat long instructions.** One ❌/✓ pair teaches a boundary more effectively
+   than a paragraph of rules. Invest your token budget in enforcement examples.
+
+4. **The last thing wins.** Models give disproportionate weight to the end of the system prompt and
+   the end of the user message. Put your strictest constraint (output format) last. Put the user's
+   question after the context, not before.
+
+5. **Refuse rather than guess.** For compliance use cases, a confident wrong answer is worse than an
+   honest "I don't know." Calibrate refusal behavior explicitly in the Rules section.
+
+6. **Test with adversarial queries.** Try questions that are adjacent to but outside your knowledge
+   base. Try questions that mix jurisdictions. Try questions that ask the model to provide legal
+   advice. Your enforcement examples should handle all three.
+
+---
+
+
+# AI Compliance Standards
+
+Panopticon was designed for organizations operating under AI regulation. This page maps **pipeline
+features to specific control requirements** across NIST AI RMF, the EU AI Act, and DoD AI guidance.
+
+The pipeline doesn't make you compliant by itself — no tool does. What it gives you is **auditable
+infrastructure** that satisfies the data governance and provenance controls these frameworks
+require.
+
+## Standards Coverage Matrix
+
+| Requirement Area                | NIST AI RMF              | EU AI Act         | DoD AI Principles    | Pipeline Feature                                                 |
+| ------------------------------- | ------------------------ | ----------------- | -------------------- | ---------------------------------------------------------------- |
+| Data provenance tracking        | MAP 1.5, MEASURE 2.6     | Art. 10(2)(f)     | Traceable            | Sovereignty attribution via CHECK constraint                     |
+| Training data governance        | GOVERN 1.1, MAP 3.4      | Art. 10(2)        | Responsible          | Tiered corpus model (tier_1/2/3)                                 |
+| Audit trail for AI systems      | GOVERN 4.1, MEASURE 4.2  | Art. 12(1)        | Governable           | Immutable pipeline envelopes                                     |
+| Risk categorization             | MAP 1.1, GOVERN 1.7      | Art. 6, Annex III | —                    | Framework + industry metadata filtering                          |
+| Transparency of AI outputs      | GOVERN 1.2, MEASURE 2.11 | Art. 13(1)        | Transparent          | Provenance watermarking on every chunk                           |
+| Data integrity verification     | MANAGE 2.2, MEASURE 2.7  | Art. 10(3)        | Reliable             | SHA-256 content hashing + watermark verification                 |
+| Human oversight capability      | GOVERN 1.4               | Art. 14(1)        | Governable           | Validation gate before ingestion                                 |
+| Third-party dependency tracking | MAP 5.1, GOVERN 5.1      | Art. 10(2)(b)     | Responsible          | Egress policy registry with artifact hashes                      |
+| Bias and quality monitoring     | MEASURE 2.6, MANAGE 1.3  | Art. 10(2)(d)     | Equitable            | Per-chunk confidence scores + fact-check gates                   |
+| Incident response capability    | MANAGE 4.1               | Art. 62           | Governable           | Envelope query by run, corpus, authority, time range             |
+| Software supply chain           | GOVERN 5.1               | Art. 10(2)(b)     | Responsible          | CycloneDX 1.5 SBOM (`sbom.json`) + egress policy hashes          |
+| Air-gapped deployment           | —                        | —                 | Reliable, Governable | Zero runtime telemetry, self-contained SQL bootstrap, SCIF-ready |
+
+## NIST AI Risk Management Framework (AI 100-1)
+
+The [NIST AI RMF](https://www.nist.gov/artificial-intelligence/ai-risk-management-framework)
+organizes risk management into four functions: **Govern, Map, Measure, Manage**. Panopticon
+addresses the data infrastructure controls within each.
+
+### GOVERN — Policies and accountability structures
+
+| Control        | What NIST Requires                                                       | How the Pipeline Addresses It                                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **GOVERN 1.1** | Legal and regulatory requirements are understood and informed by context | Corpus metadata includes `frameworks[]` (GDPR, HIPAA, SOC2) and `industries[]` — knowledge is tagged by regulatory context at ingestion time, not post-hoc                                                                           |
+| **GOVERN 1.2** | Trustworthy AI processes are documented and integrated                   | Every pipeline run produces an envelope attestation (`corpus_pipeline_envelopes`) recording who triggered it, what action ran, and what changed                                                                                      |
+| **GOVERN 1.4** | Policies for human oversight are established                             | The `validate` action gates content before ingestion — pipelines can require human approval of validation results before proceeding to `ingest_and_embed`                                                                            |
+| **GOVERN 4.1** | Organizational practices for documenting AI system behavior              | Pipeline envelopes and embedding events provide the complete audit trail. `corpus_pipeline_envelope_summary` view aggregates by run                                                                                                  |
+| **GOVERN 5.1** | Third-party AI resources are documented                                  | The `egress_policies` table registers every network policy version with its `policy_hash` (SHA-256 of the deployed artifact). The `embedding_authorities` table registers every embedder with instance ID and container image digest |
+
+### MAP — Contextualize the AI system
+
+| Control     | What NIST Requires                                    | How the Pipeline Addresses It                                                                                                                                                                |
+| ----------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MAP 1.1** | Intended purpose and context of use are characterized | The corpus tier system (`tier_1` = regulatory mandate, `tier_2` = industry standard, `tier_3` = best practice) categorizes knowledge by authority level                                      |
+| **MAP 1.5** | Organizational risk tolerances are determined         | Sovereignty constraints make it impossible to store an embedding without declaring the authority and egress policy — risk tolerance is encoded at the database level, not left to convention |
+| **MAP 3.4** | Risks from training and evaluation data are assessed  | The `fact_check` frontmatter block (reviewer, date, methodology) and the `requireFactCheck` pipeline option enforce review before production ingestion                                       |
+| **MAP 5.1** | Third-party ML components are inventoried             | `embedding_authorities` records which service (with container digest) produced each embedding. Change the provider → register a new authority                                                |
+
+### MEASURE — Analyze and assess
+
+| Control          | What NIST Requires                                   | How the Pipeline Addresses It                                                                                                                                              |
+| ---------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MEASURE 2.6**  | AI system performance and data quality are monitored | `corpus_embedding_events` logs every completion and failure at chunk level. `corpus_pipeline_envelope_summary` provides run-over-run comparison for detecting drift        |
+| **MEASURE 2.7**  | AI system security and resilience are evaluated      | Content hashes (`SHA-256`) on both documents and chunks detect tampering. Watermark verification is self-contained — no database access required to prove a chunk's origin |
+| **MEASURE 2.11** | Fairness and bias are assessed                       | Per-corpus `confidence` scores and multi-axis state tracking (`corpus_state_axes`) allow monitoring which knowledge areas have lower quality or coverage                   |
+| **MEASURE 4.2**  | Measurement results are documented                   | All measurements are database-native. Envelopes, events, and summaries are queryable via standard SQL — no proprietary dashboard required                                  |
+
+### MANAGE — Prioritize and act
+
+| Control        | What NIST Requires                                  | How the Pipeline Addresses It                                                                                                                                            |
+| -------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **MANAGE 1.3** | Responses to identified risks are developed         | The `is_active` flag on documents + the active-document gating on retrieval functions allow immediate deactivation of problematic content without deleting history       |
+| **MANAGE 2.2** | Mechanisms to manage AI risks are tested regularly  | The `rechunk` action re-processes existing corpora through the full validation → chunk → embed pipeline. Regression testing of knowledge quality is a single CLI command |
+| **MANAGE 4.1** | Incident response plans cover AI-specific scenarios | Envelopes are queryable by time range, corpus, authority, and error status — `WHERE error IS NOT NULL` finds every failed run instantly                                  |
+
+## EU AI Act
+
+The [EU AI Act](https://artificialintelligenceact.eu/) imposes binding obligations on **high-risk AI
+systems** (Annex III), including those used in critical infrastructure, employment, law enforcement,
+and migration. Even general-purpose AI systems (Art. 52+) have transparency obligations.
+
+### Article 10 — Data and Data Governance
+
+> High-risk AI systems which make use of techniques involving the training of AI models with data
+> shall be developed on the basis of training, validation and testing data sets that meet the
+> quality criteria referred to in paragraphs 2 to 5.
+
+| Art. 10 Paragraph | Requirement                                       | Pipeline Feature                                                                                                                                                          |
+| ----------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **(2)(a)**        | Design choices for data collection                | Corpus authoring guide defines the format. Tiered system (`tier_1/2/3`) reflects the data authority hierarchy                                                             |
+| **(2)(b)**        | Data provenance                                   | `embedding_authorities` + `egress_policies` + `corpus_pipeline_run_attestations` = full chain of custody from source document through embedding                           |
+| **(2)(d)**        | Assessment of availability, quantity, suitability | Framework and industry metadata enable gap analysis — "which GDPR controls have tier_1 coverage vs. tier_3?" is a SQL query                                               |
+| **(2)(f)**        | Examination of possible biases                    | Per-corpus confidence scores + multi-axis state tracking surface areas of uneven coverage. The `validate` gate flags structural issues before they enter the vector store |
+| **(3)**           | Data governance and management practices          | The entire sovereignty layer (run attestations, embedding events, immutable egress policies) is a data governance system expressed as database constraints                |
+
+### Article 12 — Record-Keeping
+
+> High-risk AI systems shall technically allow for the automatic recording of events ('logs') over
+> the lifetime of the system.
+
+The pipeline's envelope system satisfies this directly:
+
+- **`corpus_pipeline_envelopes`** — one row per corpus per run, recording action, validation result,
+  ingestion action, embedding counts, timing, errors, and sovereignty bindings
+- **`corpus_embedding_events`** — one row per chunk per embedding operation, recording completion
+  time, authority, run ID, and error details for failures
+- **`corpus_pipeline_envelope_summary`** — aggregated view by run for dashboard consumption
+- All tables are **append-only** (insert-only RLS policies) — logs cannot be retroactively modified
+
+### Article 13 — Transparency
+
+> High-risk AI systems shall be designed and developed in such a way as to ensure that their
+> operation is sufficiently transparent to enable deployers to interpret the system's output and use
+> it appropriately.
+
+Provenance watermarking addresses this requirement:
+
+- Every chunk carries a `<!-- corpus-watermark:v1:... -->` signature
+- Given any chunk, any party can call `verifyChunkWatermark()` to determine which corpus it came
+  from, its sequence position, and whether the content has been tampered with
+- This works **without database access** — the watermark is self-contained
+
+### Article 14 — Human Oversight
+
+> High-risk AI systems shall be designed and developed in such a way [...] as to enable them to be
+> effectively overseen by natural persons.
+
+The pipeline supports human-in-the-loop workflows:
+
+- `validate` action runs all checks without modifying the database
+- `ingest` and `ingest_and_embed` are separate actions — humans can review validation output before
+  approving ingestion
+- `is_active` flag allows immediate deactivation of any document from retrieval results
+
+## DoD AI Principles (Responsible AI)
+
+The
+[DoD AI Principles](https://www.ai.mil/docs/Responsible_AI_Strategy_and_Implementation_Pathway_June_2022.pdf)
+define five ethical principles for military AI systems. While Panopticon is a general-purpose
+pipeline, its design aligns with four of the five.
+
+| DoD Principle   | Definition                                                                                                     | Pipeline Alignment                                                                                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Responsible** | Personnel will exercise appropriate judgment and remain responsible for AI development and deployment          | Tiered corpus model explicit about authority level. Sovereignty bindings trace every embedding to a registered human-administered authority                     |
+| **Equitable**   | AI capabilities will be developed to minimize unintended bias                                                  | Multi-framework and multi-industry metadata enables bias surface analysis. Confidence scoring surfaces uneven knowledge quality                                 |
+| **Traceable**   | AI capabilities will be developed with transparent and auditable methods, data sources, and processes          | Full provenance chain: corpus → document → chunk → embedding authority → egress policy → run attestation. Watermarks provide offline verification               |
+| **Reliable**    | AI capabilities will have explicit, well-defined uses and safety should be assured across the lifecycle        | Content hash integrity checking (SHA-256), lease-based concurrency with dead-letter recovery, and the validation gate all contribute to operational reliability |
+| **Governable**  | AI capabilities will be designed to fulfill their intended functions while possessing the ability to disengage | `is_active` flag + active-document gating = instant disengagement at the document level. RLS policies enforce role-based access. Validation can block ingestion |
+
+## What the Pipeline Does NOT Cover
+
+Being honest about boundaries is part of compliance. Panopticon handles the **data governance
+layer** — ingestion provenance, attribution, integrity, and auditability. It does not cover:
+
+| Area                         | Not Covered                                                                 | What You Need                                                                 |
+| ---------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Retrieval-layer fairness** | The pipeline stores vectors; it doesn't control how your RAG retrieves them | Retrieval-side filtering, re-ranking, and bias testing in your application    |
+| **LLM output monitoring**    | The pipeline feeds your LLM context; it doesn't monitor what the LLM says   | Output guardrails, hallucination detection, toxicity filtering                |
+| **Organizational AIMS**      | The pipeline is infrastructure; it isn't an AI Management System            | ISO 42001 AIMS implementation, risk registers, organizational policies        |
+| **Penetration testing**      | Schema uses RLS + role separation, but hasn't been independently audited    | Third-party security assessment for production deployments                    |
+| **Continuous monitoring**    | Envelopes log what happened; they don't alert when something goes wrong     | Alerting integration (CloudWatch, Datadog, PagerDuty) on envelope error rates |
+
+## SCIF-Ready Deployment
+
+Panopticon is designed for deployment in **air-gapped and SCIF (Sensitive Compartmented Information
+Facility)** environments. The architecture has zero hard dependencies on external services at
+runtime:
+
+### Why This Is SCIF-Compatible
+
+| Property                         | Detail                                                                                                                                                                  |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **No runtime telemetry**         | The pipeline sends zero analytics, metrics, or heartbeats to any external endpoint. All logging is local                                                                |
+| **No package-level phone-home**  | No dependency calls home at `import` or `require` time                                                                                                                  |
+| **Self-contained SQL bootstrap** | All 11 SQL files run via `psql` against a local Postgres instance. No migration service, no cloud API                                                                   |
+| **PostgREST, not a cloud SDK**   | `@supabase/supabase-js` is used purely as a PostgREST HTTP client. Replace it with raw `fetch()` against any PostgREST instance — zero Supabase infrastructure required |
+| **Embedding is optional**        | `validate` and `ingest` actions work without any OpenAI call. For SCIF deployments, ingest locally and embed via an air-gapped model (see below)                        |
+| **CycloneDX SBOM included**      | `sbom.json` ships with every release — a machine-readable inventory of every dependency, version, and license for supply chain review                                   |
+
+### Air-Gapped Embedding
+
+The default pipeline uses OpenAI `text-embedding-3-large` over HTTPS. In a SCIF, replace this with a
+local embedding model:
+
+1. **Ingest without embedding**: `npx tsx src/cli.ts --action ingest` — validates and chunks
+   locally, marks chunks as `embed_status = 'pending'`
+2. **Embed locally**: Write a worker that reads pending chunks from `corpus_chunks`, calls a local
+   model (e.g., Ollama, vLLM, or a SentenceTransformers container), and updates `embedding` +
+   `embed_status` via PostgREST
+3. **Register a local authority**: Insert into `embedding_authorities` with `environment = 'scif'`
+   and `container_image_digest` pointing to your local model image
+
+The sovereignty CHECK constraint still applies — local embeddings must still reference a registered
+authority and egress policy. The egress policy for a SCIF deployment would reflect
+`scope = 'airgap'` with `policy_hash` referencing your network isolation artifact.
+
+### Software Bill of Materials (SBOM)
+
+The repository includes a [CycloneDX 1.5](https://cyclonedx.org/) SBOM at `sbom.json`, generated
+via:
+
+```bash
+npm run sbom
+```
+
+This produces a machine-readable JSON inventory listing every dependency with:
+
+- Package name, version, and license
+- Dependency tree (direct vs. transitive)
+- Package URLs (purl) for vulnerability cross-referencing
+- Hashes for integrity verification
+
+CycloneDX is the SBOM format recognized by [NIST SSDF](https://csrc.nist.gov/projects/ssdf),
+[Executive Order 14028](https://www.whitehouse.gov/briefing-room/presidential-actions/2021/05/12/executive-order-on-improving-the-nations-cybersecurity/)
+(§4), and the DoD's
+[DevSecOps Reference Design](https://dodcio.defense.gov/Portals/0/Documents/Library/DevSecOpsReferenceDesign.pdf).
+For DoD ATO (Authority to Operate) packages, include `sbom.json` alongside your system security
+plan.
+
+To verify dependencies against known vulnerabilities:
+
+```bash
+# Audit with npm
+npm audit
+
+# Or feed the SBOM into your scanner
+grype sbom.json          # Anchore Grype
+trivy sbom sbom.json     # Aqua Trivy
+```
+
+## Using This for Auditors
+
+When an auditor asks "how do you track the provenance of data used by your AI system," point them
+to:
+
+1. **`corpus_pipeline_run_attestations`** — every pipeline invocation with its sovereignty bindings
+2. **`corpus_pipeline_envelopes`** — per-corpus results including validation, ingestion, and
+   embedding outcomes
+3. **`corpus_embedding_events`** — per-chunk embedding lifecycle (completed/failed)
+4. **`corpus_chunks.embedding_authority_id`** — the CHECK constraint that makes un-attributed
+   vectors impossible
+5. **`verifyChunkWatermark()`** — offline proof of chunk origin and integrity
+
+The schema is designed so that `SELECT * FROM corpus_pipeline_envelope_summary WHERE run_id = $1`
+answers most auditor questions about a specific pipeline run in a single query.
+
+---
+
+_Standards referenced:
+[NIST AI 100-1 v1.0](https://www.nist.gov/artificial-intelligence/ai-risk-management-framework) (Jan
+2023), [EU AI Act 2024/1689](https://artificialintelligenceact.eu/) (Aug 2024),
+[DoD Responsible AI Strategy](https://www.ai.mil/docs/Responsible_AI_Strategy_and_Implementation_Pathway_June_2022.pdf)
+(Jun 2022),
+[EO 14028 — Improving the Nation's Cybersecurity](https://www.whitehouse.gov/briefing-room/presidential-actions/2021/05/12/executive-order-on-improving-the-nations-cybersecurity/)
+(May 2021), [NIST SSDF SP 800-218](https://csrc.nist.gov/projects/ssdf) (Feb 2022). SBOM format:
+[CycloneDX 1.5](https://cyclonedx.org/specification/overview/). This mapping reflects Panopticon
+v0.1.0 capabilities. It is not legal advice._
+
+---
+
+
+# Product Roadmap
+
+This roadmap tracks the planned evolution of Panopticon from a compliance-grade ingestion pipeline
+into a multi-tenant knowledge API platform.
+
+## Current State (Today)
+
+Panopticon currently ships:
+
+- TypeScript package API (`@panopticon/corpus-pipeline`)
+- CLI (`npx tsx src/cli.ts --action ...`)
+- SQL retrieval/RPC functions (`match_corpus_chunks`, `match_corpus_chunks_hybrid`, etc.) callable
+  via PostgREST
+- **AI document parsing** — CFPO-prompted parse of raw compliance text into structured corpus Markdown
+- **Web UI** — TanStack Start app with Supabase Auth, session management, AI parsing, crosswalk generation, and ZIP download
+
+## Completed Phases
+
+### Phase 0 — Auth ✓
+
+Supabase Auth with email/password, magic link, password reset. Session-based auth in the web UI.
+
+### Phase 2 — Document Intake ✓
+
+Upload raw compliance text into sessions. AI-parse with CFPO-structured prompts into corpus Markdown with S.I.R.E. identity metadata.
+
+### Phase 3 — Claude Integration ✓
+
+MCP server shipped. Two tools: `search_compliance_corpus` (semantic search) and `verify_chunk_provenance` (offline watermark verification). Works with Claude Desktop, Claude Code, and any MCP client. [MCP docs →](/mcp)
+
+### Phase 5 — Web UI & Crosswalk ✓
+
+TanStack Start web app: sessions, AI parsing, crosswalk generation, human-in-the-loop editing, ZIP download.
+
+## Planned Phases
+
+### Phase 1 — HTTP API
+
+Hono-based API layer (Node/Bun) on top of existing pipeline and PostgREST RPC primitives.
+
+### Phase 4 — Ops Hardening
+
+Rate limiting, usage metering, structured observability, and production telemetry.
+
+## Contributor Tasks
+
+Each phase includes scoped `good_first_contributions` tasks in the source roadmap file.
+
+- Source of truth:
+  [docs/panopticon-plan.yaml](https://github.com/Panopticion/corpora-pipeline/blob/main/docs/panopticon-plan.yaml)
+- Open an issue referencing the phase and task you want to take on.
+
+---
+
+
+# Privacy Policy
+
+**Last updated:** February 25, 2026
+
+Panopticon AI ("we", "us", "our") operates the panopticonlabs.ai website and the open-source corpus
+pipeline software. This policy describes how we handle information.
+
+## What We Collect
+
+### Documentation Site (panopticonlabs.ai)
+
+This site is a static documentation site. We do not:
+
+- Require user accounts or login
+- Use cookies for tracking
+- Collect personal information
+- Use third-party analytics
+- Use advertising networks
+
+We use VitePress local search, which runs entirely in your browser. No search queries are sent to
+our servers.
+
+### Open-Source Software
+
+The corpus pipeline runs entirely in your infrastructure. We do not:
+
+- Collect telemetry from the pipeline
+- Phone home or ping external servers
+- Access your corpus data, embeddings, or database
+- Track usage of the software
+
+The pipeline makes API calls to OpenAI for embedding generation. Those calls are made directly from
+your infrastructure to OpenAI under your API key and OpenAI's privacy policy.
+
+## Third-Party Services
+
+- **GitHub** hosts our source code repository. GitHub's privacy policy applies to interactions with
+  the repository (issues, pull requests, stars).
+- **OpenAI** processes embedding requests when you run the pipeline with an OpenAI API key. OpenAI's
+  privacy policy and data usage policy apply to those API calls.
+- **Google Fonts** serves web fonts on this documentation site. Google's privacy policy applies.
+
+## Data You Process
+
+The corpus pipeline processes regulatory and compliance documents that you provide. This data:
+
+- Stays in your Postgres database
+- Is never transmitted to us
+- Is governed by your own data handling policies
+- May contain regulated information (GDPR personal data, HIPAA PHI, etc.) depending on your use case
+
+You are responsible for ensuring your use of the pipeline complies with applicable regulations for
+the data you process.
+
+## Contact
+
+For privacy questions: [support@panopticonlabs.ai](mailto:support@panopticonlabs.ai)
+
+---
+
+
+# Terms of Service
+
+**Last updated:** February 25, 2026
+
+## The Software
+
+Panopticon AI corpus pipeline is open-source software released under the
+[MIT License](https://github.com/Panopticion/corpora-pipeline/blob/main/LICENSE). The MIT License
+governs your use of the software. In summary:
+
+- You may use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+  software
+- The software is provided "as is" without warranty of any kind
+- The authors are not liable for any claims, damages, or other liability
+
+## The Documentation Site
+
+This documentation site (panopticonlabs.ai) is provided for informational purposes. We make
+reasonable efforts to keep the documentation accurate and up to date, but we do not warrant the
+completeness or accuracy of the content.
+
+## Compliance Information
+
+The documentation references compliance frameworks (GDPR, HIPAA, SOC 2, NIST AI RMF, EU AI Act,
+etc.) for educational and engineering purposes. This content:
+
+- Is not legal advice
+- Does not constitute a compliance certification
+- Should not be relied upon as a substitute for professional legal counsel
+- Is provided to help engineers build compliance-aware systems
+
+The pipeline helps you store and retrieve compliance knowledge with attribution and provenance.
+Whether your use of the pipeline satisfies regulatory requirements depends on your specific
+implementation, organizational context, and jurisdiction.
+
+## Sample Corpora
+
+The repository ships with sample compliance corpora for demonstration purposes. These samples are
+simplified for clarity and should not be used as authoritative compliance references. Consult the
+original regulatory sources for authoritative text.
+
+## Third-Party Dependencies
+
+The pipeline depends on open-source packages and external services (OpenAI, Postgres, PostgREST).
+Your use of those services is governed by their respective terms and licenses.
+
+## Changes
+
+We may update these terms as the project evolves. Changes are tracked in the repository's commit
+history.
+
+## Contact
+
+Questions about these terms: [support@panopticonlabs.ai](mailto:support@panopticonlabs.ai)
+
+---
+

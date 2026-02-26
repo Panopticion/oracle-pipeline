@@ -1,0 +1,36 @@
+# Panopticon AI
+
+> Compliance-grade corpus ingestion pipeline for Postgres 17 + pgvector
+
+## Product
+
+Panopticon ships a TypeScript library, CLI, MCP server, and hosted web UI for compliance-grade
+corpus ingestion. Upload compliance documents, AI-parse into structured corpus Markdown with S.I.R.E.
+identity metadata, generate cross-framework crosswalks, and download attributed vector-ready bundles.
+
+## Docs
+
+- [Quickstart](https://panopticonlabs.ai/quickstart): Get from zero to first embedded chunk in ~10 minutes
+- [Pipeline Guide](https://panopticonlabs.ai/guide): Complete reference for sovereignty, watermarking, chunking, retrieval
+- [API Reference](https://panopticonlabs.ai/api): TypeScript types, functions, and SQL RPC exports
+- [MCP Server](https://panopticonlabs.ai/mcp): Connect corpus retrieval and watermark verification to Claude Desktop and Claude Code
+- [Prompt Engineering (CFPO)](https://panopticonlabs.ai/prompt-engineering): Structure LLM system prompts for compliance-grade RAG
+- [S.I.R.E. Identity-First Retrieval](https://panopticonlabs.ai/sire): Deterministic post-retrieval enforcement for compliance RAG
+- [AI Compliance Standards](https://panopticonlabs.ai/compliance): NIST AI RMF, EU AI Act, DoD Responsible AI mappings
+- [Product Roadmap](https://panopticonlabs.ai/roadmap): Contributor roadmap with phased delivery and good-first tasks
+- [Privacy Policy](https://panopticonlabs.ai/privacy): How Panopticon AI documentation and software handle privacy and telemetry
+- [Terms of Service](https://panopticonlabs.ai/terms): Legal terms for the Panopticon AI docs site and open-source software
+
+## Web UI
+
+The hosted web application provides a complete document-to-corpus workflow:
+
+- **Sessions**: Group related compliance documents into batches for processing
+- **AI Document Parsing**: CFPO-prompted AI (via OpenRouter) converts raw compliance text into structured corpus Markdown with S.I.R.E. identity metadata, frontmatter, and fact-check attestations
+- **Cross-Framework Crosswalks**: AI generates control mappings across all frameworks in a session (GDPR, HIPAA, SOC 2, ISO 27001, etc.)
+- **Human-in-the-Loop**: Review and edit every AI-generated parse and crosswalk before finalization
+- **Download Bundle**: ZIP export with all parsed documents, crosswalk, and auto-generated README
+
+## Optional
+
+- [llms-full.txt](https://panopticonlabs.ai/llms-full.txt): Full documentation text for LLM context windows

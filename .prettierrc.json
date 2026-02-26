@@ -1,0 +1,20 @@
+{
+  "semi": true,
+  "singleQuote": false,
+  "printWidth": 100,
+  "proseWrap": "preserve",
+  "overrides": [
+    {
+      "files": ["*.md", "*.markdown"],
+      "options": {
+        "proseWrap": "always"
+      }
+    },
+    {
+      "files": ["*.yml", "*.yaml"],
+      "options": {
+        "singleQuote": false
+      }
+    }
+  ]
+}

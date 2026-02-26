@@ -1,0 +1,35 @@
+# Corpus Pipeline — local dev stack
+# Usage: docker compose up -d
+#        Then: npm run cli -- --action embed_pending
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg17
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    ports:
+      - "3000:3000"
+    environment:
+      PGRST_DB_URI: postgresql://postgres:postgres@postgres:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: pipeline_anon
+      PGRST_JWT_SECRET: super-secret-jwt-key-minimum-32-chars-long!!
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:

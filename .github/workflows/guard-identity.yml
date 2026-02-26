@@ -1,0 +1,56 @@
+# Guard: reject any commit whose author or committer matches a blocked identity.
+# Runs on every push to every branch and on pull-request open/sync.
+
+name: "Guard: Commit Identity"
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  check-identity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so we can inspect all pushed commits
+
+      - name: Reject blocked author/committer identities
+        run: |
+          set -euo pipefail
+
+          # ── Blocked patterns (case-insensitive grep -iE) ──────────────
+          BLOCKED="Stephen Fishburn|stephen@onticlaba\.ai|stephen@onticlabs\.ai"
+
+          FAILED=0
+
+          echo "Scanning commit history for blocked identities..."
+          echo ""
+
+          # Check every commit reachable from HEAD
+          while IFS= read -r line; do
+            HASH=$(echo "$line" | cut -d'|' -f1)
+            AUTHOR=$(echo "$line" | cut -d'|' -f2)
+            AUTHOR_EMAIL=$(echo "$line" | cut -d'|' -f3)
+            COMMITTER=$(echo "$line" | cut -d'|' -f4)
+            COMMITTER_EMAIL=$(echo "$line" | cut -d'|' -f5)
+            SUBJECT=$(echo "$line" | cut -d'|' -f6)
+
+            for field in "$AUTHOR" "$AUTHOR_EMAIL" "$COMMITTER" "$COMMITTER_EMAIL"; do
+              if echo "$field" | grep -qiE "$BLOCKED"; then
+                echo "::error::Blocked identity in commit ${HASH:0:8}: \"$field\" — $SUBJECT"
+                FAILED=1
+              fi
+            done
+          done < <(git log --format="%H|%an|%ae|%cn|%ce|%s" HEAD)
+
+          echo ""
+          if [ "$FAILED" -eq 1 ]; then
+            echo "::error::One or more commits contain a blocked author/committer identity."
+            echo "Fix with: GIT_COMMITTER_NAME=... GIT_COMMITTER_EMAIL=... git commit --amend --author='...'"
+            exit 1
+          fi
+
+          echo "✅ All commits clean — no blocked identities found."

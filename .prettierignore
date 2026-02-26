@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.output/
+.nitro/
+.tanstack/
+.vercel/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+coverage/
+*.log
+sbom.json

@@ -1,0 +1,344 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Panopticon AI — Roadmap from Ingestion Pipeline to RAG-as-a-Service
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file describes the planned evolution of the corpus-pipeline into a
+# full multi-tenant, API-driven compliance knowledge platform.
+#
+# Status: Draft — open for contributor input
+# License: MIT
+# Last updated: 2026-02-25
+#
+# ─── What exists today ──────────────────────────────────────────────────────
+#
+# The pipeline validates, chunks, watermarks, and embeds regulatory Markdown
+# documents into Postgres 17 + pgvector with full sovereignty attribution.
+# Every embedding is structurally bound to a registered authority and egress
+# policy via CHECK constraints. Provenance watermarks in each chunk's content
+# allow verification even after export.
+#
+# ─── What this plan adds ────────────────────────────────────────────────────
+#
+# Phase 0: Auth (sign-up, sign-in, JWT, tenant isolation)
+# Phase 1: HTTP API (Hono on Node/Bun, PostgREST RPC layer)
+# Phase 2: Document intake (PDF, DOCX, TXT, HTML → Markdown → pipeline)
+# Phase 3: Claude integration (MCP server + tool_use retrieval)
+# Phase 4: Ops (rate limiting, usage metering, observability)
+#
+# ─── For contributors ──────────────────────────────────────────────────────
+#
+# Each phase lists "good_first_contributions" — scoped tasks that can be
+# picked up independently. If you're interested, open an issue referencing
+# the phase and task.
+# ─────────────────────────────────────────────────────────────────────────────
+
+project: panopticon-ai
+repo: https://github.com/Panopticion/corpora-pipeline
+license: MIT
+
+# ─── WHAT EXISTS ────────────────────────────────────────────────────────────
+
+existing_schema:
+  roles:
+    - pipeline_admin # Full access — CLI, server routes
+    - pipeline_user # JWT-authenticated, RLS-scoped
+    - pipeline_anon # Unauthenticated read-only
+  tables:
+    console:
+      - organizations # Multi-tenant root
+      - organization_members # (org_id, user_id, role: owner|admin|member)
+      - projects # Per-org project containers
+      - policies # Per-project rules (conditions jsonb, action)
+      - audit_logs # Immutable decision records
+    sovereignty:
+      - egress_policies # Append-only, hash-verified
+      - embedding_authorities # Registered embedder identities
+    content:
+      - corpus_documents # One row per corpus (metadata, version, hash)
+      - corpus_chunks # Chunks with 512d vectors, sovereignty attribution
+      - corpus_embedding_events # Immutable embedding operation log
+      - corpus_pipeline_run_attestations # Run-level audit envelopes
+  retrieval_functions:
+    - match_corpus_chunks # Pure semantic search (cosine, pgvector)
+    - match_corpus_chunks_hybrid # Vector + full-text via RRF (k=20)
+  constraints:
+    - "corpus_chunks: embedding IS NULL OR (embedding_authority_id IS NOT NULL AND embedding_run_id IS NOT NULL)"
+    - "corpus_chunks: content_hash ~ '^[a-f0-9]{64}$'"
+    - "egress_policies: append-only (UPDATE/DELETE denied)"
+  watermarking:
+    format: "<!-- corpus-watermark:v1:{corpusId}:{sequence}:{signature} -->"
+    modes:
+      - "SHA-256 (default, zero-config)"
+      - "HMAC-SHA-256 (with WATERMARK_SECRET)"
+    verification: "strip → hash → recompute signature → compare"
+
+# ─── PHASE 0: AUTH ──────────────────────────────────────────────────────────
+
+phase_0_auth:
+  status: not_started
+  goal: >
+    Add sign-up, sign-in, JWT refresh, and tenant isolation so the platform
+    can serve multiple organizations with separate corpus stores.
+
+  new_tables:
+    user_credentials:
+      columns:
+        - { name: id, type: uuid, pk: true }
+        - { name: email, type: text, unique: true }
+        - { name: password_hash, type: text, note: "bcrypt or argon2" }
+        - { name: created_at, type: timestamptz }
+        - { name: last_login_at, type: timestamptz }
+      notes: "Extends existing users table with credential storage"
+
+    tenant_api_keys:
+      columns:
+        - { name: id, type: uuid, pk: true }
+        - { name: organization_id, type: uuid, fk: organizations }
+        - { name: key_hash, type: text, note: "SHA-256 of the API key" }
+        - { name: key_prefix, type: text, note: "First 8 chars for identification" }
+        - { name: name, type: text }
+        - { name: scopes, type: "text[]", note: "e.g. ['ingest', 'retrieve', 'admin']" }
+        - { name: expires_at, type: timestamptz }
+        - { name: created_at, type: timestamptz }
+        - { name: revoked_at, type: timestamptz }
+
+    refresh_tokens:
+      columns:
+        - { name: id, type: uuid, pk: true }
+        - { name: user_id, type: uuid, fk: users }
+        - { name: token_hash, type: text }
+        - { name: expires_at, type: timestamptz }
+        - { name: created_at, type: timestamptz }
+        - { name: revoked_at, type: timestamptz }
+
+  new_sql_functions:
+    - name: authenticate_user
+      params: [p_email text, p_password text]
+      returns: "TABLE(user_id uuid, org_id uuid, role text)"
+      notes: "Validates credentials, returns JWT claims"
+
+    - name: register_user
+      params: [p_email text, p_password text, p_org_name text]
+      returns: "TABLE(user_id uuid, org_id uuid)"
+      notes: "Creates user + org + owner membership in a transaction"
+
+  jwt_strategy:
+    issuer: panopticon
+    claims: [sub (user_id), org_id, role, iat, exp]
+    access_token_ttl: 15m
+    refresh_token_ttl: 7d
+    signing: HS256 (configurable to RS256)
+    notes: >
+      PostgREST reads role from JWT claim. pipeline_admin for service keys,
+      pipeline_user for authenticated users. org_id claim drives RLS.
+
+  good_first_contributions:
+    - "Write the SQL migration for user_credentials + tenant_api_keys"
+    - "Implement bcrypt password hashing utility in TypeScript"
+    - "Add API key generation + validation middleware"
+
+# ─── PHASE 1: HTTP API ─────────────────────────────────────────────────────
+
+phase_1_api:
+  status: not_started
+  goal: >
+    Expose the pipeline as an HTTP API so tenants can ingest documents,
+    trigger embedding, and retrieve chunks programmatically.
+
+  framework: Hono
+  runtime: "Node.js or Bun"
+  notes: >
+    Hono is lightweight, TypeScript-native, and runs on Node, Bun, and
+    edge runtimes. PostgREST continues to serve direct DB access for
+    retrieval functions.
+
+  endpoints:
+    auth:
+      - { method: POST, path: /auth/register, body: "{email, password, org_name}" }
+      - { method: POST, path: /auth/login, body: "{email, password}" }
+      - { method: POST, path: /auth/refresh, body: "{refresh_token}" }
+      - { method: POST, path: /auth/logout, body: "{refresh_token}" }
+
+    api_keys:
+      - { method: POST, path: /api-keys, body: "{name, scopes, expires_at}" }
+      - { method: GET, path: /api-keys, notes: "List keys for current org" }
+      - { method: DELETE, path: "/api-keys/:id", notes: "Revoke key" }
+
+    corpus:
+      - { method: POST, path: /corpus/ingest, body: "{markdown, corpus_id?}" }
+      - { method: POST, path: /corpus/upload, body: "multipart/form-data (PDF, DOCX, TXT, HTML)" }
+      - { method: POST, path: /corpus/embed, body: "{corpus_id?, action}" }
+      - { method: GET, path: /corpus, notes: "List documents for current org" }
+      - { method: GET, path: "/corpus/:corpus_id", notes: "Document detail + chunks" }
+      - { method: DELETE, path: "/corpus/:corpus_id", notes: "Deactivate document" }
+
+    retrieval:
+      - { method: POST, path: /retrieve, body: "{query, filters?, match_count?}" }
+      - { method: POST, path: /retrieve/hybrid, body: "{query, filters?, semantic_weight?}" }
+
+    admin:
+      - { method: GET, path: /pipeline/runs, notes: "List attestation envelopes" }
+      - { method: GET, path: /pipeline/health, notes: "DB connectivity + pending chunk count" }
+
+  good_first_contributions:
+    - "Scaffold Hono app with health endpoint and JWT middleware"
+    - "Wire /corpus/ingest to executePipelineRequest()"
+    - "Implement /retrieve endpoint wrapping match_corpus_chunks RPC"
+
+# ─── PHASE 2: DOCUMENT INTAKE ──────────────────────────────────────────────
+
+phase_2_document_intake:
+  status: not_started
+  goal: >
+    Accept PDF, DOCX, TXT, and HTML uploads and convert them to Markdown
+    before feeding into the existing pipeline.
+
+  parser_strategy:
+    pdf: "pdf-parse or @anthropic-ai/pdf-to-text"
+    docx: mammoth
+    html: "turndown (HTML → Markdown)"
+    txt: "Direct pass-through with frontmatter injection"
+
+  flow: >
+    Upload → detect MIME → parse to Markdown → inject frontmatter
+    (corpus_id, title from filename/metadata, tier default) →
+    parseCorpusContent() → existing pipeline
+
+  storage:
+    originals: "S3-compatible object store (optional)"
+    notes: >
+      Original files can be stored for audit trail. The pipeline only
+      needs the Markdown output. Original storage is opt-in.
+
+  good_first_contributions:
+    - "Implement PDF → Markdown parser with heading detection"
+    - "Implement DOCX → Markdown parser via mammoth"
+    - "Write MIME detection and router for upload endpoint"
+
+# ─── PHASE 3: CLAUDE INTEGRATION ───────────────────────────────────────────
+
+phase_3_claude_integration:
+  status: shipped
+  goal: >
+    Expose corpus retrieval as a Claude tool_use endpoint and as an
+    MCP (Model Context Protocol) server for Claude Desktop / Claude Code.
+
+  mcp_server:
+    transport: stdio
+    tools:
+      - name: search_compliance_corpus
+        description: >
+          Search regulatory and compliance knowledge base. Returns
+          attributed chunks with sovereignty metadata.
+        input_schema:
+          type: object
+          properties:
+            query: { type: string, description: "Natural language query" }
+            frameworks:
+              {
+                type: array,
+                items: { type: string },
+                description: "Filter by framework (GDPR, HIPAA, SOC2, PCI-DSS)",
+              }
+            tier:
+              {
+                type: string,
+                enum: [tier_1, tier_2, tier_3],
+                description: "Authority level filter",
+              }
+            match_count: { type: integer, default: 10 }
+          required: [query]
+
+      - name: verify_chunk_provenance
+        description: >
+          Verify the provenance watermark on a corpus chunk to confirm
+          it hasn't been tampered with.
+        input_schema:
+          type: object
+          properties:
+            content: { type: string, description: "Watermarked chunk content" }
+          required: [content]
+
+      - name: list_corpora
+        description: "List available corpus documents with metadata."
+        input_schema:
+          type: object
+          properties:
+            tier: { type: string }
+            frameworks: { type: array, items: { type: string } }
+
+  tool_use_api:
+    notes: >
+      For direct Claude API integration (not MCP), the /retrieve endpoint
+      returns chunks formatted for tool_use content blocks. Example:
+
+      POST /retrieve
+      → { results: [{ content, corpus_id, tier, frameworks, similarity, watermark_verified }] }
+
+      The caller includes these in their Claude messages as tool results.
+
+  good_first_contributions:
+    - "Implement MCP server with search_compliance_corpus tool"
+    - "Add verify_chunk_provenance tool using verifyChunkWatermark()"
+    - "Write Claude tool_use integration example in docs"
+
+# ─── PHASE 4: OPS ──────────────────────────────────────────────────────────
+
+phase_4_ops:
+  status: not_started
+  goal: >
+    Production hardening: rate limiting, usage metering, and observability.
+
+  rate_limiting:
+    strategy: "Token bucket per API key (Redis or Postgres advisory locks)"
+    defaults:
+      ingest: "10 req/min per org"
+      retrieve: "100 req/min per org"
+      embed: "5 req/min per org"
+
+  usage_metering:
+    new_table: usage_events
+    columns:
+      - { name: id, type: uuid }
+      - { name: organization_id, type: uuid }
+      - { name: event_type, type: text, note: "ingest | embed | retrieve" }
+      - { name: units, type: integer, note: "chunks, tokens, or queries" }
+      - { name: recorded_at, type: timestamptz }
+    notes: "Aggregate for billing. No billing system in scope — just metering."
+
+  observability:
+    - "Structured JSON logging (pino)"
+    - "OpenTelemetry traces for pipeline runs"
+    - "Prometheus /metrics endpoint (embedding latency, chunk throughput, error rates)"
+
+  good_first_contributions:
+    - "Add pino structured logging to pipeline functions"
+    - "Implement usage_events table and insert hooks"
+    - "Write /metrics endpoint with basic counters"
+
+# ─── OPEN QUESTIONS ─────────────────────────────────────────────────────────
+
+open_questions:
+  - question: "Should retrieval support streaming (SSE) for large result sets?"
+    context: "Most compliance queries return 5-20 chunks. Streaming may be overkill."
+
+  - question: "Should the MCP server support resource subscriptions for live corpus updates?"
+    context: "MCP supports resource subscriptions but the use case is unclear for static regulatory docs."
+
+  - question: "Should we support embedding providers beyond OpenAI?"
+    context: >
+      Current pipeline hardcodes text-embedding-3-large (512d). Cohere,
+      Voyage, and local models (via Ollama) are all viable. Would need
+      a provider abstraction and dimension configuration.
+
+  - question: "What's the right boundary between Panopticon and the consumer's RAG pipeline?"
+    context: >
+      Panopticon does ingestion + retrieval. Should it also do prompt
+      construction (system prompt + context injection) or stay purely
+      as a knowledge API?
+
+  - question: "Should watermark verification be enforceable at the DB level?"
+    context: >
+      Currently watermarks are verified in application code. A Postgres
+      trigger could verify watermarks on INSERT/UPDATE and reject
+      tampered content. Trade-off: performance vs. integrity guarantee.

@@ -1,0 +1,29 @@
+node_modules/
+dist/
+.output/
+.nitro/
+.tanstack/
+.env
+.env.local
+.env.*.local
+.DS_Store
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test/coverage artifacts
+coverage/
+
+# Vercel
+.vercel/
+
+# Editor/IDE
+.idea/
+.vscode/
+
+# Misc
+*.tmp
+*.swp
+.vercel
