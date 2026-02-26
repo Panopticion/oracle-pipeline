@@ -99,6 +99,10 @@ export function DocumentEditor() {
                   headingPath: c.heading_path,
                 })),
               });
+            } catch (err) {
+              store.updateDocument(doc.id, {
+                errorMessage: `Chunk failed: ${err instanceof Error ? err.message : String(err)}`,
+              });
             } finally {
               setChunking(null);
             }
@@ -109,9 +113,11 @@ export function DocumentEditor() {
               await watermarkDoc({
                 data: { documentId: doc.id },
               });
-              // Re-fetch the doc to get updated chunks_json with watermarks
-              // For now, mark status and let next page load hydrate the data
               store.updateDocument(doc.id, { status: "watermarked" });
+            } catch (err) {
+              store.updateDocument(doc.id, {
+                errorMessage: `Watermark failed: ${err instanceof Error ? err.message : String(err)}`,
+              });
             } finally {
               setWatermarking(null);
             }
@@ -393,17 +399,22 @@ function DocumentCard({
       </div>
 
       {/* Per-document pipeline + next step */}
-      <div className="flex items-center justify-between border-t border-border/50 px-4 py-2">
-        <DocPipeline status={doc.status} chunkCount={doc.chunks?.length ?? 0} />
-        {nextAction && (
-          <NextStepButton
-            action={nextAction}
-            chunking={chunking}
-            watermarking={watermarking}
-            onChunk={onChunk}
-            onWatermark={onWatermark}
-            onReparse={onReparse}
-          />
+      <div className="border-t border-border/50 px-4 py-2">
+        <div className="flex items-center justify-between">
+          <DocPipeline status={doc.status} chunkCount={doc.chunks?.length ?? 0} />
+          {nextAction && (
+            <NextStepButton
+              action={nextAction}
+              chunking={chunking}
+              watermarking={watermarking}
+              onChunk={onChunk}
+              onWatermark={onWatermark}
+              onReparse={onReparse}
+            />
+          )}
+        </div>
+        {doc.errorMessage && !isActive && (
+          <p className="mt-1 text-xs text-error truncate">{doc.errorMessage}</p>
         )}
       </div>
 
