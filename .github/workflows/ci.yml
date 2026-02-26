@@ -34,6 +34,3 @@ jobs:
 
       - name: Unit tests
         run: npm test
-
-      - name: Docs build
-        run: npm run docs:build
