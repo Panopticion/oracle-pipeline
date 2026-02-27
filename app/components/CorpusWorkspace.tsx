@@ -398,6 +398,10 @@ export function CorpusWorkspace({ session, documents }: Props) {
   const handleSetTab = (tab: WorkspaceTab) => {
     if (storeReady) {
       store.setTab(tab);
+      // Refresh from server on crosswalk/download tabs to ensure docs are current
+      if (tab === "crosswalk" || tab === "download") {
+        refreshFromServer();
+      }
     }
   };
 

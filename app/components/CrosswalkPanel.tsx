@@ -98,14 +98,28 @@ export function CrosswalkPanel() {
           requirements, and gaps across your uploaded compliance documents.
         </p>
 
-        <div className="mb-4 flex items-center gap-4">
-          <span className="text-xs text-text-muted">
-            {readyDocs.length} document{readyDocs.length !== 1 ? "s" : ""} ready
-          </span>
-          {!canGenerate && (
-            <span className="text-xs text-warning">
-              Need at least 2 parsed documents
+        <div className="mb-4 space-y-2">
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-text-muted">
+              {readyDocs.length} of {store.documents.length} document{store.documents.length !== 1 ? "s" : ""} ready
             </span>
+            {!canGenerate && (
+              <span className="text-xs text-warning">
+                Need at least 2 parsed documents
+              </span>
+            )}
+          </div>
+          {readyDocs.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {readyDocs.map((d) => (
+                <span
+                  key={d.id}
+                  className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700"
+                >
+                  {d.sourceFilename} ({d.status})
+                </span>
+              ))}
+            </div>
           )}
         </div>
 
