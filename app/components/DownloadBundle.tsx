@@ -64,9 +64,16 @@ export function DownloadBundle() {
       }
     });
 
-    // Add crosswalk
+    // Add crosswalk (full document + watermarked chunks)
     if (store.crosswalkMarkdown) {
       files["crosswalk/crosswalk-v1.md"] = strToU8(store.crosswalkMarkdown);
+    }
+    if (store.crosswalkChunks) {
+      store.crosswalkChunks.forEach((chunk) => {
+        const seq = String(chunk.sequence).padStart(3, "0");
+        const chunkSlug = slugify(chunk.sectionTitle).slice(0, 40);
+        files[`chunks/crosswalk/${seq}-${chunkSlug}.md`] = strToU8(chunk.content);
+      });
     }
 
     // Add README
@@ -138,6 +145,17 @@ export function DownloadBundle() {
               <>
                 <p className="text-text-muted">crosswalk/</p>
                 <p className="ml-4 text-text">crosswalk-v1.md</p>
+                {store.crosswalkChunks && (
+                  <>
+                    <p className="ml-4 text-text-muted">
+                      chunks/crosswalk/
+                    </p>
+                    <p className="ml-8 text-text">
+                      {store.crosswalkChunks.length} watermarked chunk
+                      {store.crosswalkChunks.length !== 1 ? "s" : ""}
+                    </p>
+                  </>
+                )}
               </>
             )}
             <p className="text-text">README.md</p>
@@ -193,6 +211,11 @@ export function DownloadBundle() {
                   <p className="text-xs text-text-muted">
                     {store.crosswalkMarkdown.split(/\s+/).filter(Boolean).length}{" "}
                     words
+                    {store.crosswalkChunks && (
+                      <span className="ml-2 text-emerald-600">
+                        {store.crosswalkChunks.length} watermarked chunks
+                      </span>
+                    )}
                   </p>
                 </div>
                 <button

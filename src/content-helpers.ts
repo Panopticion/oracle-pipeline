@@ -121,6 +121,103 @@ export function chunkCorpus(corpus: Corpus): CorpusChunkRaw[] {
   }));
 }
 
+// ─── Crosswalk Chunking ──────────────────────────────────────────────────────
+
+/**
+ * Chunk crosswalk markdown into sections on H2/H3 heading boundaries.
+ *
+ * Unlike `chunkCorpus()`, this does not require YAML frontmatter — it
+ * operates on raw markdown (the output of crosswalk generation).
+ *
+ * @param corpusId — Synthetic corpus_id for the crosswalk (e.g. "crosswalk-v1-{sessionId}")
+ * @param markdown — Raw crosswalk markdown
+ */
+export function chunkCrosswalkMarkdown(
+  corpusId: string,
+  markdown: string,
+): CorpusChunkRaw[] {
+  const lines = markdown.split("\n");
+  const sections: {
+    title: string;
+    level: number;
+    content: string;
+    headingPath: string[];
+  }[] = [];
+
+  let currentTitle = "Crosswalk";
+  let currentLevel = 2;
+  let currentLines: string[] = [];
+  let headingPath = ["Crosswalk"];
+
+  for (const line of lines) {
+    const h2Match = line.match(/^##\s+(.+)/);
+    const h3Match = line.match(/^###\s+(.+)/);
+
+    if (h2Match) {
+      if (currentLines.length > 0) {
+        sections.push({
+          title: currentTitle,
+          level: currentLevel,
+          content: currentLines.join("\n").trim(),
+          headingPath: [...headingPath],
+        });
+      }
+      currentTitle = h2Match[1].trim();
+      currentLevel = 2;
+      headingPath = ["Crosswalk", currentTitle];
+      currentLines = [line];
+    } else if (h3Match) {
+      if (currentLines.length > 0) {
+        sections.push({
+          title: currentTitle,
+          level: currentLevel,
+          content: currentLines.join("\n").trim(),
+          headingPath: [...headingPath],
+        });
+      }
+      currentTitle = h3Match[1].trim();
+      currentLevel = 3;
+      headingPath = ["Crosswalk", currentTitle];
+      currentLines = [line];
+    } else {
+      currentLines.push(line);
+    }
+  }
+
+  // Flush remaining
+  if (currentLines.length > 0) {
+    sections.push({
+      title: currentTitle,
+      level: currentLevel,
+      content: currentLines.join("\n").trim(),
+      headingPath: [...headingPath],
+    });
+  }
+
+  // Filter empty and merge small chunks
+  const filtered = sections.filter((s) => s.content.length > 0);
+  const merged: typeof filtered = [];
+
+  for (const section of filtered) {
+    if (merged.length > 0 && wordCount(section.content) < MIN_CHUNK_WORDS) {
+      const prev = merged[merged.length - 1];
+      prev.content += "\n\n" + section.content;
+    } else {
+      merged.push({ ...section });
+    }
+  }
+
+  return merged.map((section, i) => ({
+    sequence: i,
+    section_title: section.title,
+    heading_level: section.level,
+    content: section.content,
+    content_hash: sha256(section.content),
+    token_count: tokenCount(section.content),
+    heading_path: section.headingPath,
+  }));
+}
+
 // ─── Parsing ──────────────────────────────────────────────────────────────────
 
 /**

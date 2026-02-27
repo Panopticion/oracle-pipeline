@@ -13,8 +13,9 @@ import type {
   GenerateCrosswalkOptions,
   SupabaseClient,
 } from "./types";
-import { parseCorpusContent } from "./content-helpers";
+import { chunkCrosswalkMarkdown, parseCorpusContent } from "./content-helpers";
 import { callOpenRouter } from "./openrouter";
+import { injectWatermark } from "./watermark";
 import {
   buildCrosswalkSystemPrompt,
   buildCrosswalkUserMessage,
@@ -227,8 +228,21 @@ export async function generateEncyclopediaCrosswalk(
   const fenceMatch = raw.match(/```(?:markdown)?\s*\n([\s\S]*)\n\s*```\s*$/);
   const crosswalkMarkdown = fenceMatch ? fenceMatch[1].trim() : raw.trim();
 
+  // Chunk and watermark the crosswalk
+  const crosswalkCorpusId = `crosswalk-encyclopedia-${userId}`;
+  const rawChunks = chunkCrosswalkMarkdown(crosswalkCorpusId, crosswalkMarkdown);
+  const crosswalkChunks: CorpusChunkRaw[] = rawChunks.map((chunk) => ({
+    ...chunk,
+    content: injectWatermark(chunk.content, {
+      corpusId: crosswalkCorpusId,
+      sequence: chunk.sequence,
+      contentHash: chunk.content_hash,
+    }),
+  }));
+
   return {
     crosswalkMarkdown,
+    crosswalkChunks,
     model: result.model,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,

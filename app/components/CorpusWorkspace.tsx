@@ -27,6 +27,15 @@ interface Props {
     status: string;
     is_public: boolean;
     crosswalk_markdown: string | null;
+    crosswalk_chunks_json: Array<{
+      sequence: number;
+      section_title: string;
+      heading_level: number;
+      content: string;
+      content_hash: string;
+      token_count: number;
+      heading_path: string[];
+    }> | null;
   };
   documents: Array<{
     id: string;
@@ -54,6 +63,21 @@ interface Props {
 }
 
 // ─── Doc mapper (server props → client format) ─────────────────────────────
+
+function mapChunksJson(
+  chunks: Props["session"]["crosswalk_chunks_json"],
+): import("@/lib/stores").ChunkData[] | null {
+  if (!chunks) return null;
+  return chunks.map((c) => ({
+    sequence: c.sequence,
+    sectionTitle: c.section_title,
+    headingLevel: c.heading_level,
+    content: c.content,
+    contentHash: c.content_hash,
+    tokenCount: c.token_count,
+    headingPath: c.heading_path,
+  }));
+}
 
 function mapServerDocs(documents: Props["documents"]): SessionDoc[] {
   return documents.map((d) => ({
@@ -359,6 +383,7 @@ export function CorpusWorkspace({ session, documents }: Props) {
       status: session.status as Parameters<typeof store.hydrate>[0]["status"],
       isPublic: session.is_public,
       crosswalkMarkdown: session.crosswalk_markdown,
+      crosswalkChunks: mapChunksJson(session.crosswalk_chunks_json),
       documents: mapServerDocs(documents),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -382,6 +407,7 @@ export function CorpusWorkspace({ session, documents }: Props) {
         status: fresh.session.status as Parameters<typeof store.hydrate>[0]["status"],
         isPublic: fresh.session.is_public,
         crosswalkMarkdown: fresh.session.crosswalk_markdown,
+        crosswalkChunks: mapChunksJson(fresh.session.crosswalk_chunks_json),
         documents: mapServerDocs(fresh.documents),
       });
     } catch {

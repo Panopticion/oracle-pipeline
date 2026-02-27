@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS corpus_parse_sessions (
 
   -- Crosswalk result (populated after generation)
   crosswalk_markdown  TEXT,
+  crosswalk_chunks_json JSONB,         -- watermarked chunks of the crosswalk
   crosswalk_model     TEXT,
   crosswalk_tokens_in INTEGER,
   crosswalk_tokens_out INTEGER,

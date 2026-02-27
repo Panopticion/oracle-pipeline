@@ -8,6 +8,7 @@
 
 import { createHash } from "node:crypto";
 import type {
+  CorpusChunkRaw,
   CorpusSession,
   CreateSessionOptions,
   CrosswalkResult,
@@ -27,9 +28,12 @@ import {
   buildCrosswalkUserMessage,
 } from "./prompts/crosswalk-document";
 import type { CrosswalkDocumentInput } from "./prompts/crosswalk-document";
-import { chunkCorpus, parseCorpusContent } from "./content-helpers";
+import {
+  chunkCorpus,
+  chunkCrosswalkMarkdown,
+  parseCorpusContent,
+} from "./content-helpers";
 import { injectWatermark } from "./watermark";
-import type { CorpusChunkRaw } from "./types";
 import { PARSE_MODEL_DEFAULT } from "./constants";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -743,12 +747,25 @@ export async function generateCrosswalk(
 
     const crosswalkMarkdown = extractMarkdown(result.content);
 
+    // Chunk and watermark the crosswalk
+    const crosswalkCorpusId = `crosswalk-v1-${sessionId}`;
+    const rawChunks = chunkCrosswalkMarkdown(crosswalkCorpusId, crosswalkMarkdown);
+    const crosswalkChunks: CorpusChunkRaw[] = rawChunks.map((chunk) => ({
+      ...chunk,
+      content: injectWatermark(chunk.content, {
+        corpusId: crosswalkCorpusId,
+        sequence: chunk.sequence,
+        contentHash: chunk.content_hash,
+      }),
+    }));
+
     // Store result on session
     await client
       .from("corpus_parse_sessions")
       .update({
         status: "crosswalk_done",
         crosswalk_markdown: crosswalkMarkdown,
+        crosswalk_chunks_json: crosswalkChunks,
         crosswalk_model: model,
         crosswalk_tokens_in: result.inputTokens,
         crosswalk_tokens_out: result.outputTokens,
@@ -757,6 +774,7 @@ export async function generateCrosswalk(
 
     return {
       crosswalkMarkdown,
+      crosswalkChunks,
       model: result.model,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,

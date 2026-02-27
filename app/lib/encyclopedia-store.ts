@@ -33,6 +33,7 @@ interface EncyclopediaState {
   entries: EncyclopediaDoc[];
   selectedIds: Set<string>;
   crosswalkMarkdown: string | null;
+  crosswalkChunks: ChunkData[] | null;
   crosswalkGenerating: boolean;
 
   hydrate: (entries: EncyclopediaDoc[]) => void;
@@ -40,7 +41,7 @@ interface EncyclopediaState {
   removeEntry: (id: string) => void;
   toggleSelected: (id: string) => void;
   clearSelection: () => void;
-  setCrosswalk: (markdown: string | null) => void;
+  setCrosswalk: (markdown: string | null, chunks?: ChunkData[] | null) => void;
   setCrosswalkGenerating: (generating: boolean) => void;
   reset: () => void;
 }
@@ -49,6 +50,7 @@ const initialState = {
   entries: [] as EncyclopediaDoc[],
   selectedIds: new Set<string>(),
   crosswalkMarkdown: null as string | null,
+  crosswalkChunks: null as ChunkData[] | null,
   crosswalkGenerating: false,
 };
 
@@ -85,7 +87,8 @@ export const useEncyclopediaStore = create<EncyclopediaState>()((set) => ({
 
   clearSelection: () => set({ selectedIds: new Set() }),
 
-  setCrosswalk: (markdown) => set({ crosswalkMarkdown: markdown }),
+  setCrosswalk: (markdown, chunks) =>
+    set({ crosswalkMarkdown: markdown, crosswalkChunks: chunks ?? null }),
 
   setCrosswalkGenerating: (generating) =>
     set({ crosswalkGenerating: generating }),

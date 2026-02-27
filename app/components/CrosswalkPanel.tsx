@@ -156,9 +156,16 @@ export function CrosswalkPanel() {
       {store.crosswalkMarkdown && (
         <div className="rounded-lg border border-border bg-surface p-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-text">
-              Crosswalk Result
-            </h2>
+            <div>
+              <h2 className="text-sm font-semibold text-text">
+                Crosswalk Result
+              </h2>
+              {store.crosswalkChunks && (
+                <p className="text-xs text-emerald-600">
+                  {store.crosswalkChunks.length} watermarked chunks
+                </p>
+              )}
+            </div>
             <div className="flex gap-2">
               {editing ? (
                 <>

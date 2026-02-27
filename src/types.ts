@@ -300,6 +300,7 @@ export interface CorpusSession {
   status: SessionStatus;
   is_public: boolean;
   crosswalk_markdown: string | null;
+  crosswalk_chunks_json: CorpusChunkRaw[] | null;
   crosswalk_model: string | null;
   crosswalk_tokens_in: number | null;
   crosswalk_tokens_out: number | null;
@@ -381,6 +382,7 @@ export interface GenerateCrosswalkOptions {
 /** Result of crosswalk generation. */
 export interface CrosswalkResult {
   crosswalkMarkdown: string;
+  crosswalkChunks: CorpusChunkRaw[];
   model: string;
   inputTokens: number;
   outputTokens: number;

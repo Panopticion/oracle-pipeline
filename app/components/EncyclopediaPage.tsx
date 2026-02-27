@@ -137,7 +137,16 @@ export function EncyclopediaPage({
       const result = await generateEncyclopediaCrosswalk({
         data: { entryIds: Array.from(store.selectedIds) },
       });
-      store.setCrosswalk(result.crosswalkMarkdown);
+      const chunks = result.crosswalkChunks?.map((c: { sequence: number; section_title: string; heading_level: number; content: string; content_hash: string; token_count: number; heading_path: string[] }) => ({
+        sequence: c.sequence,
+        sectionTitle: c.section_title,
+        headingLevel: c.heading_level,
+        content: c.content,
+        contentHash: c.content_hash,
+        tokenCount: c.token_count,
+        headingPath: c.heading_path,
+      })) ?? null;
+      store.setCrosswalk(result.crosswalkMarkdown, chunks);
       setCrosswalkEdit(result.crosswalkMarkdown);
     } catch (err) {
       setCrosswalkError(
@@ -170,9 +179,16 @@ export function EncyclopediaPage({
       }
     });
 
-    // Add crosswalk
+    // Add crosswalk (full document + watermarked chunks)
     if (store.crosswalkMarkdown) {
       files["crosswalk/crosswalk-v1.md"] = strToU8(store.crosswalkMarkdown);
+    }
+    if (store.crosswalkChunks) {
+      store.crosswalkChunks.forEach((chunk) => {
+        const seq = String(chunk.sequence).padStart(3, "0");
+        const chunkSlug = slugify(chunk.sectionTitle).slice(0, 40);
+        files[`chunks/crosswalk/${seq}-${chunkSlug}.md`] = strToU8(chunk.content);
+      });
     }
 
     // Add README
@@ -399,9 +415,16 @@ export function EncyclopediaPage({
       {store.crosswalkMarkdown && (
         <div className="rounded-lg border border-border bg-surface p-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-text">
-              Crosswalk Result
-            </h2>
+            <div>
+              <h2 className="text-sm font-semibold text-text">
+                Crosswalk Result
+              </h2>
+              {store.crosswalkChunks && (
+                <p className="text-xs text-emerald-600">
+                  {store.crosswalkChunks.length} watermarked chunks
+                </p>
+              )}
+            </div>
             <div className="flex gap-2">
               {editingCrosswalk ? (
                 <>

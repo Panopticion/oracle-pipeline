@@ -64,6 +64,7 @@ interface SessionState {
   documents: SessionDoc[];
   activeDocumentId: string | null;
   crosswalkMarkdown: string | null;
+  crosswalkChunks: ChunkData[] | null;
   currentTab: WorkspaceTab;
 
   // Actions
@@ -73,6 +74,7 @@ interface SessionState {
     status: SessionStatus;
     isPublic: boolean;
     crosswalkMarkdown: string | null;
+    crosswalkChunks: ChunkData[] | null;
     documents: SessionDoc[];
   }) => void;
   setTab: (tab: WorkspaceTab) => void;
@@ -83,7 +85,7 @@ interface SessionState {
   updateDocument: (id: string, updates: Partial<SessionDoc>) => void;
   removeDocument: (id: string) => void;
   setActiveDocument: (id: string | null) => void;
-  setCrosswalk: (markdown: string) => void;
+  setCrosswalk: (markdown: string, chunks?: ChunkData[]) => void;
   reset: () => void;
 }
 
@@ -95,6 +97,7 @@ const initialState = {
   documents: [] as SessionDoc[],
   activeDocumentId: null as string | null,
   crosswalkMarkdown: null as string | null,
+  crosswalkChunks: null as ChunkData[] | null,
   currentTab: "upload" as WorkspaceTab,
 };
 
@@ -118,6 +121,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
         sessionStatus: session.status,
         isPublic: session.isPublic,
         crosswalkMarkdown: session.crosswalkMarkdown,
+        crosswalkChunks: session.crosswalkChunks,
         documents: session.documents,
         currentTab: sameSession ? state.currentTab : defaultTab,
       };
@@ -153,9 +157,10 @@ export const useSessionStore = create<SessionState>()((set) => ({
 
   setActiveDocument: (id) => set({ activeDocumentId: id }),
 
-  setCrosswalk: (markdown) =>
+  setCrosswalk: (markdown, chunks) =>
     set({
       crosswalkMarkdown: markdown,
+      crosswalkChunks: chunks ?? null,
       sessionStatus: "crosswalk_done",
       currentTab: "crosswalk",
     }),
