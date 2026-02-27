@@ -83,12 +83,14 @@ export function DocumentEditor() {
           }}
           onChunk={async () => {
             setChunking(doc.id);
+            store.updateDocument(doc.id, { errorMessage: null });
             try {
               const result = await chunkDoc({
                 data: { documentId: doc.id },
               });
               store.updateDocument(doc.id, {
                 status: "chunked",
+                errorMessage: null,
                 chunks: result.chunks.map((c) => ({
                   sequence: c.sequence,
                   sectionTitle: c.section_title,
@@ -109,11 +111,24 @@ export function DocumentEditor() {
           }}
           onWatermark={async () => {
             setWatermarking(doc.id);
+            store.updateDocument(doc.id, { errorMessage: null });
             try {
-              await watermarkDoc({
+              const result = await watermarkDoc({
                 data: { documentId: doc.id },
               });
-              store.updateDocument(doc.id, { status: "watermarked" });
+              store.updateDocument(doc.id, {
+                status: "watermarked",
+                errorMessage: null,
+                chunks: result.chunks.map((c) => ({
+                  sequence: c.sequence,
+                  sectionTitle: c.section_title,
+                  headingLevel: c.heading_level,
+                  content: c.content,
+                  contentHash: c.content_hash,
+                  tokenCount: c.token_count,
+                  headingPath: c.heading_path,
+                })),
+              });
             } catch (err) {
               store.updateDocument(doc.id, {
                 errorMessage: `Watermark failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -186,6 +201,8 @@ function getNextAction(status: string): NextAction {
       return { kind: "chunk", label: "Chunk Document" };
     case "chunked":
       return { kind: "watermark", label: "Watermark Chunks" };
+    case "watermarked":
+      return { kind: "chunk", label: "Re-chunk" };
     case "failed":
       return { kind: "reparse", label: "Re-parse" };
     default:
@@ -613,7 +630,7 @@ function ChunkReview({
         {isWatermarked && (
           <>
             <CopyDocButton doc={doc} />
-            <CopyChunksButton chunks={chunks} />
+            <CopyChunksButton chunks={chunks} doc={doc} />
           </>
         )}
         <button
@@ -736,15 +753,26 @@ function CopyChunkButton({ content }: { content: string }) {
   );
 }
 
-function CopyChunksButton({ chunks }: { chunks: ChunkData[] }) {
+function CopyChunksButton({
+  chunks,
+  doc,
+}: {
+  chunks: ChunkData[];
+  doc: SessionDoc;
+}) {
   const [copied, setCopied] = useState(false);
 
   return (
     <button
       onClick={() => {
-        const text = chunks
-          .map((c) => c.content)
-          .join("\n\n---\n\n");
+        // Extract frontmatter block from the document markdown
+        const markdown = doc.userMarkdown ?? doc.parsedMarkdown ?? "";
+        const fmMatch = markdown.match(/^---\r?\n[\s\S]*?\r?\n---/);
+        const frontmatter = fmMatch ? fmMatch[0] : "";
+
+        // Build output: frontmatter + chunks (headings serve as natural boundaries)
+        const body = chunks.map((c) => c.content).join("\n\n");
+        const text = frontmatter ? `${frontmatter}\n\n${body}` : body;
         navigator.clipboard.writeText(text);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);

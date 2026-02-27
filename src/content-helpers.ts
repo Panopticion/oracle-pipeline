@@ -68,7 +68,7 @@ export function chunkCorpus(corpus: Corpus): CorpusChunkRaw[] {
       currentTitle = h2Match[1].trim();
       currentLevel = 2;
       headingPath = [corpus.title, currentTitle];
-      currentLines = [];
+      currentLines = [line]; // preserve heading in chunk content
     } else if (h3Match) {
       if (currentLines.length > 0) {
         sections.push({
@@ -81,7 +81,7 @@ export function chunkCorpus(corpus: Corpus): CorpusChunkRaw[] {
       currentTitle = h3Match[1].trim();
       currentLevel = 3;
       headingPath = [corpus.title, currentTitle];
-      currentLines = [];
+      currentLines = [line]; // preserve heading in chunk content
     } else {
       currentLines.push(line);
     }

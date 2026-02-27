@@ -575,7 +575,7 @@ export async function chunkDocument(
 export async function watermarkDocument(
   client: SupabaseClient,
   documentId: string,
-): Promise<{ documentId: string; chunkCount: number }> {
+): Promise<{ documentId: string; chunkCount: number; chunks: CorpusChunkRaw[] }> {
   const { data: doc, error } = await client
     .from("corpus_session_documents")
     .select("*")
@@ -619,7 +619,7 @@ export async function watermarkDocument(
     throw new Error(`Failed to save watermarked chunks: ${updateError.message}`);
   }
 
-  return { documentId, chunkCount: watermarkedChunks.length };
+  return { documentId, chunkCount: watermarkedChunks.length, chunks: watermarkedChunks };
 }
 
 // ─── Session Status ─────────────────────────────────────────────────────────

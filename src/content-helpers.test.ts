@@ -189,4 +189,37 @@ describe("chunkCorpus", () => {
       expect(chunk.token_count).toBeGreaterThan(0);
     }
   });
+
+  it("preserves heading lines in chunk content", () => {
+    // Each section must exceed MIN_CHUNK_WORDS (75) to avoid merge
+    const filler =
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus nulla gravida orci a odio tonk illic.";
+    const raw = `---
+corpus_id: heading-test-v1
+title: Heading Test
+tier: tier_1
+version: 1
+frameworks: [GDPR]
+---
+
+## First Section
+
+${filler}
+
+## Second Section
+
+${filler}
+`;
+    const corpus = parseCorpusContent(raw);
+    const chunks = chunkCorpus(corpus);
+
+    // Each chunk should start with its heading line
+    const first = chunks.find((c) => c.section_title === "First Section");
+    expect(first).toBeDefined();
+    expect(first!.content).toMatch(/^## First Section/);
+
+    const second = chunks.find((c) => c.section_title === "Second Section");
+    expect(second).toBeDefined();
+    expect(second!.content).toMatch(/^## Second Section/);
+  });
 });
