@@ -13,6 +13,7 @@ import {
   reparseDocument,
   chunkDoc,
   watermarkDoc,
+  promoteDoc,
 } from "@/server/session-actions";
 
 export function DocumentEditor() {
@@ -21,6 +22,8 @@ export function DocumentEditor() {
   const [reparsing, setReparsing] = useState<string | null>(null);
   const [chunking, setChunking] = useState<string | null>(null);
   const [watermarking, setWatermarking] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState<string | null>(null);
+  const [promoted, setPromoted] = useState<Set<string>>(new Set());
 
   if (store.documents.length === 0) {
     return (
@@ -135,6 +138,21 @@ export function DocumentEditor() {
               });
             } finally {
               setWatermarking(null);
+            }
+          }}
+          promoting={promoting === doc.id}
+          isPromoted={promoted.has(doc.id)}
+          onPromote={async () => {
+            setPromoting(doc.id);
+            try {
+              await promoteDoc({ data: { documentId: doc.id } });
+              setPromoted((prev) => new Set(prev).add(doc.id));
+            } catch (err) {
+              store.updateDocument(doc.id, {
+                errorMessage: `Promote failed: ${err instanceof Error ? err.message : String(err)}`,
+              });
+            } finally {
+              setPromoting(null);
             }
           }}
           onBackToEdit={() => {
@@ -346,10 +364,13 @@ function DocumentCard({
   reparsing,
   chunking,
   watermarking,
+  promoting,
+  isPromoted,
   onSave,
   onReparse,
   onChunk,
   onWatermark,
+  onPromote,
   onBackToEdit,
   onDelete,
 }: {
@@ -360,10 +381,13 @@ function DocumentCard({
   reparsing: boolean;
   chunking: boolean;
   watermarking: boolean;
+  promoting: boolean;
+  isPromoted: boolean;
   onSave: (markdown: string) => Promise<void>;
   onReparse: () => Promise<void>;
   onChunk: () => Promise<void>;
   onWatermark: () => Promise<void>;
+  onPromote: () => Promise<void>;
   onBackToEdit: () => void;
   onDelete: () => Promise<void>;
 }) {
@@ -450,7 +474,10 @@ function DocumentCard({
             <ChunkReview
               doc={doc}
               watermarking={watermarking}
+              promoting={promoting}
+              isPromoted={isPromoted}
               onWatermark={onWatermark}
+              onPromote={onPromote}
               onBackToEdit={onBackToEdit}
             />
           ) : (
@@ -576,12 +603,18 @@ function EditView({
 function ChunkReview({
   doc,
   watermarking,
+  promoting,
+  isPromoted,
   onWatermark,
+  onPromote,
   onBackToEdit,
 }: {
   doc: SessionDoc;
   watermarking: boolean;
+  promoting: boolean;
+  isPromoted: boolean;
   onWatermark: () => Promise<void>;
+  onPromote: () => Promise<void>;
   onBackToEdit: () => void;
 }) {
   const chunks = doc.chunks ?? [];
@@ -631,6 +664,21 @@ function ChunkReview({
           <>
             <CopyDocButton doc={doc} />
             <CopyChunksButton chunks={chunks} doc={doc} />
+            <button
+              onClick={onPromote}
+              disabled={promoting}
+              className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                isPromoted
+                  ? "border border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : "bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              }`}
+            >
+              {promoting
+                ? "Saving..."
+                : isPromoted
+                  ? "Saved to Encyclopedia"
+                  : "Save to Encyclopedia"}
+            </button>
           </>
         )}
         <button

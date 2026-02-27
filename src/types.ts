@@ -328,6 +328,8 @@ export interface SessionDocument {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  /** Set when document is promoted to the Encyclopedia. */
+  promoted_at: string | null;
 }
 
 /** Options for creating a new parse session. */
@@ -382,6 +384,28 @@ export interface CrosswalkResult {
   model: string;
   inputTokens: number;
   outputTokens: number;
+}
+
+// ─── Encyclopedia (Persistent Document Library) ───────────────────────────
+
+/** A document promoted to the persistent Encyclopedia library. */
+export interface EncyclopediaEntry {
+  id: string;
+  created_by: string | null;
+  organization_id: string | null;
+  corpus_id: string;
+  title: string;
+  tier: string;
+  frameworks: string[];
+  industries: string[];
+  segments: string[];
+  source_filename: string;
+  markdown: string;
+  chunks_json: CorpusChunkRaw[] | null;
+  source_session_id: string | null;
+  source_document_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Internal ───────────────────────────────────────────────────────────────

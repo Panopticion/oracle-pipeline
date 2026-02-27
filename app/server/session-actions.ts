@@ -33,6 +33,12 @@ import {
   reparseDocument as reparseDocumentFn,
   generateCrosswalk as generateCrosswalkFn,
 } from "@pipeline/sessions";
+import {
+  promoteToEncyclopedia as promoteToEncyclopediaFn,
+  listEncyclopedia as listEncyclopediaFn,
+  removeEncyclopediaEntry as removeEncyclopediaEntryFn,
+  generateEncyclopediaCrosswalk as generateEncyclopediaCrosswalkFn,
+} from "@pipeline/encyclopedia";
 
 function getOpenRouterKey(): string {
   const key = process.env.OPENROUTER_API_KEY;
@@ -282,6 +288,47 @@ export const getPublicSessionData = createServerFn({ method: "GET" })
     const safeDocuments = documents.map(({ source_text, ...d }) => d);
 
     return { session, documents: safeDocuments };
+  });
+
+// ─── Encyclopedia ────────────────────────────────────────────────────────────
+
+export const promoteDoc = createServerFn({ method: "POST" })
+  .inputValidator((data: { documentId: string }) => data)
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+    const service = getSupabaseService();
+    return await promoteToEncyclopediaFn(service, data.documentId, user.id);
+  });
+
+export const getEncyclopedia = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const user = await requireUser();
+    const service = getSupabaseService();
+    return await listEncyclopediaFn(service, user.id);
+  },
+);
+
+export const removeEncyclopediaEntry = createServerFn({ method: "POST" })
+  .inputValidator((data: { entryId: string }) => data)
+  .handler(async ({ data }) => {
+    await requireUser();
+    const service = getSupabaseService();
+    await removeEncyclopediaEntryFn(service, data.entryId);
+  });
+
+export const generateEncyclopediaCrosswalk = createServerFn({ method: "POST" })
+  .inputValidator((data: { entryIds: string[] }) => data)
+  .handler(async ({ data }) => {
+    await requireUser();
+    const service = getSupabaseService();
+
+    const result = await generateEncyclopediaCrosswalkFn(
+      service,
+      data.entryIds,
+      { openrouterApiKey: getOpenRouterKey() },
+    );
+
+    return result;
   });
 
 // ─── Auth ───────────────────────────────────────────────────────────────────

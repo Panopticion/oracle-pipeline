@@ -44,6 +44,8 @@ function Breadcrumbs() {
     } else {
       crumbs.push({ label: "Sessions" });
     }
+  } else if (path.startsWith("/encyclopedia")) {
+    crumbs.push({ label: "Encyclopedia" });
   }
 
   if (crumbs.length <= 1) return null;
@@ -105,6 +107,12 @@ function AuthedLayout() {
               className="text-sm text-slate-400 transition-colors hover:text-white"
             >
               Sessions
+            </Link>
+            <Link
+              to="/encyclopedia"
+              className="text-sm text-slate-400 transition-colors hover:text-white"
+            >
+              Encyclopedia
             </Link>
           </div>
           <div className="flex items-center gap-4">

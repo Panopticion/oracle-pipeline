@@ -18,6 +18,7 @@ import { Route as AuthResetPasswordRouteImport } from './routes/auth.reset-passw
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthedSessionsIndexRouteImport } from './routes/_authed/sessions.index'
+import { Route as AuthedEncyclopediaIndexRouteImport } from './routes/_authed/encyclopedia.index'
 import { Route as AuthedSessionsIdRouteImport } from './routes/_authed/sessions.$id'
 
 const AuthedRoute = AuthedRouteImport.update({
@@ -64,6 +65,11 @@ const AuthedSessionsIndexRoute = AuthedSessionsIndexRouteImport.update({
   path: '/sessions/',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedEncyclopediaIndexRoute = AuthedEncyclopediaIndexRouteImport.update({
+  id: '/encyclopedia/',
+  path: '/encyclopedia/',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedSessionsIdRoute = AuthedSessionsIdRouteImport.update({
   id: '/sessions/$id',
   path: '/sessions/$id',
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/auth/update-password': typeof AuthUpdatePasswordRoute
   '/share/$id': typeof ShareIdRoute
   '/sessions/$id': typeof AuthedSessionsIdRoute
+  '/encyclopedia/': typeof AuthedEncyclopediaIndexRoute
   '/sessions/': typeof AuthedSessionsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/auth/update-password': typeof AuthUpdatePasswordRoute
   '/share/$id': typeof ShareIdRoute
   '/sessions/$id': typeof AuthedSessionsIdRoute
+  '/encyclopedia': typeof AuthedEncyclopediaIndexRoute
   '/sessions': typeof AuthedSessionsIndexRoute
 }
 export interface FileRoutesById {
@@ -103,6 +111,7 @@ export interface FileRoutesById {
   '/auth/update-password': typeof AuthUpdatePasswordRoute
   '/share/$id': typeof ShareIdRoute
   '/_authed/sessions/$id': typeof AuthedSessionsIdRoute
+  '/_authed/encyclopedia/': typeof AuthedEncyclopediaIndexRoute
   '/_authed/sessions/': typeof AuthedSessionsIndexRoute
 }
 export interface FileRouteTypes {
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/auth/update-password'
     | '/share/$id'
     | '/sessions/$id'
+    | '/encyclopedia/'
     | '/sessions/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/auth/update-password'
     | '/share/$id'
     | '/sessions/$id'
+    | '/encyclopedia'
     | '/sessions'
   id:
     | '__root__'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/auth/update-password'
     | '/share/$id'
     | '/_authed/sessions/$id'
+    | '/_authed/encyclopedia/'
     | '/_authed/sessions/'
   fileRoutesById: FileRoutesById
 }
@@ -218,6 +230,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSessionsIndexRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/encyclopedia/': {
+      id: '/_authed/encyclopedia/'
+      path: '/encyclopedia'
+      fullPath: '/encyclopedia/'
+      preLoaderRoute: typeof AuthedEncyclopediaIndexRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/sessions/$id': {
       id: '/_authed/sessions/$id'
       path: '/sessions/$id'
@@ -230,11 +249,13 @@ declare module '@tanstack/react-router' {
 
 interface AuthedRouteChildren {
   AuthedSessionsIdRoute: typeof AuthedSessionsIdRoute
+  AuthedEncyclopediaIndexRoute: typeof AuthedEncyclopediaIndexRoute
   AuthedSessionsIndexRoute: typeof AuthedSessionsIndexRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedSessionsIdRoute: AuthedSessionsIdRoute,
+  AuthedEncyclopediaIndexRoute: AuthedEncyclopediaIndexRoute,
   AuthedSessionsIndexRoute: AuthedSessionsIndexRoute,
 }
 
