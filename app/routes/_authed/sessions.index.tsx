@@ -110,6 +110,14 @@ function SessionListPage() {
     archived: "bg-gray-100 text-gray-500",
   };
 
+  const statusLabels: Record<string, string> = {
+    uploading: "in progress",
+    complete: "complete",
+    crosswalk_pending: "crosswalk pending",
+    crosswalk_done: "crosswalk done",
+    archived: "archived",
+  };
+
   return (
     <div>
       {/* Workflow guide */}
@@ -237,7 +245,7 @@ function SessionListPage() {
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[session.status] ?? "bg-gray-100 text-gray-500"}`}
                 >
-                  {session.status.replace(/_/g, " ")}
+                  {statusLabels[session.status] ?? session.status.replace(/_/g, " ")}
                 </span>
                 <button
                   onClick={(e) => {

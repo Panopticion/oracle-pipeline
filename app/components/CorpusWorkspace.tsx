@@ -441,7 +441,7 @@ export function CorpusWorkspace({ session, documents }: Props) {
               }}
             />
             <p className="text-xs text-text-muted">
-              {sessionStatus.replace(/_/g, " ")} &middot; {docs.length} document
+              {sessionStatus === "uploading" ? "in progress" : sessionStatus.replace(/_/g, " ")} &middot; {docs.length} document
               {docs.length !== 1 ? "s" : ""}
             </p>
           </div>

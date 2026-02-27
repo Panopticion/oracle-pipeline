@@ -64,7 +64,7 @@ export function CrosswalkPanel() {
         data: { sessionId: store.sessionId },
       }).catch((err) => {
         setError(err instanceof Error ? err.message : "Crosswalk generation failed");
-        store.setSessionStatus("uploading");
+        store.setSessionStatus("complete");
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Crosswalk generation failed");

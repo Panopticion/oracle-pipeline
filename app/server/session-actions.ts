@@ -311,20 +311,33 @@ export const getEncyclopedia = createServerFn({ method: "GET" }).handler(
 export const removeEncyclopediaEntry = createServerFn({ method: "POST" })
   .inputValidator((data: { entryId: string }) => data)
   .handler(async ({ data }) => {
-    await requireUser();
+    const user = await requireUser();
     const service = getSupabaseService();
+
+    // Verify ownership before deleting
+    const { data: entry } = await service
+      .from("corpus_encyclopedia")
+      .select("created_by")
+      .eq("id", data.entryId)
+      .single();
+
+    if (!entry || entry.created_by !== user.id) {
+      throw new Error("Not authorized");
+    }
+
     await removeEncyclopediaEntryFn(service, data.entryId);
   });
 
 export const generateEncyclopediaCrosswalk = createServerFn({ method: "POST" })
   .inputValidator((data: { entryIds: string[] }) => data)
   .handler(async ({ data }) => {
-    await requireUser();
+    const user = await requireUser();
     const service = getSupabaseService();
 
     const result = await generateEncyclopediaCrosswalkFn(
       service,
       data.entryIds,
+      user.id,
       { openrouterApiKey: getOpenRouterKey() },
     );
 

@@ -20,7 +20,7 @@ import {
   buildCrosswalkUserMessage,
 } from "./prompts/crosswalk-document";
 import type { CrosswalkDocumentInput } from "./prompts/crosswalk-document";
-import { PARSE_MODEL_DEFAULT } from "./constants";
+import { CROSSWALK_MODEL_DEFAULT } from "./constants";
 
 // ─── Promote ─────────────────────────────────────────────────────────────────
 
@@ -153,6 +153,7 @@ export async function removeEncyclopediaEntry(
 export async function generateEncyclopediaCrosswalk(
   client: SupabaseClient,
   entryIds: string[],
+  userId: string,
   options: GenerateCrosswalkOptions,
 ): Promise<CrosswalkResult> {
   if (entryIds.length < 2) {
@@ -161,12 +162,13 @@ export async function generateEncyclopediaCrosswalk(
     );
   }
 
-  const model = options.model ?? PARSE_MODEL_DEFAULT;
+  const model = options.model ?? CROSSWALK_MODEL_DEFAULT;
 
-  // Fetch selected entries
+  // Fetch selected entries scoped to user
   const { data: entries, error } = await client
     .from("corpus_encyclopedia")
     .select("*")
+    .eq("created_by", userId)
     .in("id", entryIds);
 
   if (error) {
