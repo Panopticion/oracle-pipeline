@@ -16,6 +16,20 @@ constraint. Un-attributed vectors can't exist.
 [Documentation](https://panopticonlabs.ai) · [Quickstart](https://panopticonlabs.ai/quickstart) ·
 [GitHub](https://github.com/Panopticion/corpus-web)
 
+## Product demos
+
+### Upload → Parse
+
+![Upload to parse flow](docs/demo/upload-parse.gif)
+
+### Chunk → Watermark
+
+![Chunk and watermark flow](docs/demo/chunk-watermark.gif)
+
+### Crosswalk → Export
+
+![Crosswalk and export flow](docs/demo/crosswalk-export.gif)
+
 ## Why This Exists
 
 Split text, call an embedding API, dump vectors. Fine for a chatbot. Negligent for regulated

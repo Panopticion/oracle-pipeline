@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Panopticon docs
+    url: https://panopticonlabs.ai
+    about: Product docs and quickstart guidance

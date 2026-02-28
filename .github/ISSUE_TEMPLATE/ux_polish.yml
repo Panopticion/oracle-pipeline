@@ -1,0 +1,47 @@
+name: UX polish
+description: Suggest a small usability or copy improvement
+labels:
+  - ux
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Friction observed
+      description: What felt confusing, slow, or noisy?
+      placeholder: Describe the user friction clearly
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: Keep this lightweight and specific
+      placeholder: Change X to Y because...
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Expected impact
+      options:
+        - Low
+        - Medium
+        - High
+    validations:
+      required: true
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Estimated effort
+      options:
+        - XS (<1 hour)
+        - S (half day)
+        - M (1-2 days)
+        - L (3+ days)
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...

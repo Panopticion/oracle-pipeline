@@ -191,6 +191,7 @@ export function GlobalStateDashboard({
   const [loadingByDocument, setLoadingByDocument] = useState<Record<string, RowAction | null>>({});
   const [bulkAction, setBulkAction] = useState<RowAction | null>(null);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set());
+  const [selectAcrossPages, setSelectAcrossPages] = useState(false);
   const [focusedDocumentId, setFocusedDocumentId] = useState<string | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -353,6 +354,8 @@ export function GlobalStateDashboard({
     () => selectedRows.filter((row) => actionForRow(row) === "watermark"),
     [selectedRows],
   );
+
+  const hasBulkSelection = selectAcrossPages || selectedRows.length > 0;
 
   const workflowCounts = useMemo(() => {
     const parseReady = rows.filter((row) => actionForRow(row) === "parse").length;
@@ -573,12 +576,36 @@ export function GlobalStateDashboard({
       return;
     }
 
-    const targets =
+    let targets =
       action === "parse"
         ? selectedParseRows
         : action === "chunk"
           ? selectedChunkRows
           : selectedWatermarkRows;
+
+    if (selectAcrossPages) {
+      const firstPage = await refresh({
+        ...serverQuery,
+        page: 1,
+        pageSize: 200,
+      });
+
+      const allRows = [...firstPage.documents];
+      for (let pageIndex = 2; pageIndex <= firstPage.pagination.totalPages; pageIndex += 1) {
+        const pageData = await refresh({
+          ...serverQuery,
+          page: pageIndex,
+          pageSize: 200,
+        });
+        allRows.push(...pageData.documents);
+      }
+
+      const uniqueRows = Array.from(
+        new Map(allRows.map((row) => [row.documentId, row])).values(),
+      );
+
+      targets = uniqueRows.filter((row) => actionForRow(row) === action);
+    }
 
     if (targets.length === 0) {
       pushToast("error", `No selected rows are eligible for ${actionLabel(action, false).toLowerCase()}`);
@@ -586,7 +613,7 @@ export function GlobalStateDashboard({
     }
 
     const confirmed = window.confirm(
-      `Run ${actionLabel(action, false)} for ${String(targets.length)} selected document${targets.length === 1 ? "" : "s"}?`,
+      `Run ${actionLabel(action, false)} for ${String(targets.length)} ${selectAcrossPages ? "filtered" : "selected"} document${targets.length === 1 ? "" : "s"}?`,
     );
     if (!confirmed) return;
 
@@ -619,6 +646,8 @@ export function GlobalStateDashboard({
     });
 
     setBulkAction(null);
+    setSelectAcrossPages(false);
+    setSelectedDocumentIds(new Set());
 
     const summaryMessage =
       action === "parse"
@@ -653,6 +682,9 @@ export function GlobalStateDashboard({
   }
 
   function toggleRowSelected(documentId: string) {
+    if (selectAcrossPages) {
+      setSelectAcrossPages(false);
+    }
     setSelectedDocumentIds((current) => {
       const next = new Set(current);
       if (next.has(documentId)) next.delete(documentId);
@@ -1158,6 +1190,24 @@ export function GlobalStateDashboard({
           </button>
         </div>
 
+        {pagination.total > pagedRows.length && (
+          <label className="mt-3 inline-flex items-center gap-2 rounded-md border border-border bg-surface-alt px-3 py-1.5 text-xs text-text-muted">
+            <input
+              type="checkbox"
+              checked={selectAcrossPages}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                setSelectAcrossPages(enabled);
+                if (enabled) {
+                  setSelectedDocumentIds(new Set(pagedRows.map((row) => row.documentId)));
+                }
+              }}
+              className="h-4 w-4 rounded border-border"
+            />
+            Select all filtered results across pages ({String(pagination.total)})
+          </label>
+        )}
+
         {showAdvancedControls && (
           <div className="mt-3 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -1257,44 +1307,57 @@ export function GlobalStateDashboard({
         )}
       </div>
 
-      {selectedRows.length > 0 && (
+      {hasBulkSelection && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3">
-          <p className="text-xs text-text-muted">{String(selectedRows.length)} selected</p>
+          <p className="text-xs text-text-muted">
+            {selectAcrossPages
+              ? `All filtered results selected (${String(pagination.total)})`
+              : `${String(selectedRows.length)} selected`}
+          </p>
           <button
             onClick={() => {
               void runBulkAction("parse");
             }}
-            disabled={!operatorMode || bulkAction !== null || selectedParseRows.length === 0}
+            disabled={!operatorMode || bulkAction !== null || (!selectAcrossPages && selectedParseRows.length === 0)}
             className="rounded-md bg-corpus-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-corpus-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {bulkAction === "parse"
               ? "Parsing..."
-              : `Bulk Retry Parse (${String(selectedParseRows.length)})`}
+              : selectAcrossPages
+                ? "Bulk Retry Parse (all pages)"
+                : `Bulk Retry Parse (${String(selectedParseRows.length)})`}
           </button>
           <button
             onClick={() => {
               void runBulkAction("chunk");
             }}
-            disabled={!operatorMode || bulkAction !== null || selectedChunkRows.length === 0}
+            disabled={!operatorMode || bulkAction !== null || (!selectAcrossPages && selectedChunkRows.length === 0)}
             className="rounded-md bg-corpus-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-corpus-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {bulkAction === "chunk"
               ? "Chunking..."
-              : `Bulk Chunk (${String(selectedChunkRows.length)})`}
+              : selectAcrossPages
+                ? "Bulk Chunk (all pages)"
+                : `Bulk Chunk (${String(selectedChunkRows.length)})`}
           </button>
           <button
             onClick={() => {
               void runBulkAction("watermark");
             }}
-            disabled={!operatorMode || bulkAction !== null || selectedWatermarkRows.length === 0}
+            disabled={!operatorMode || bulkAction !== null || (!selectAcrossPages && selectedWatermarkRows.length === 0)}
             className="rounded-md bg-corpus-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-corpus-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {bulkAction === "watermark"
               ? "Watermarking..."
-              : `Bulk Watermark (${String(selectedWatermarkRows.length)})`}
+              : selectAcrossPages
+                ? "Bulk Watermark (all pages)"
+                : `Bulk Watermark (${String(selectedWatermarkRows.length)})`}
           </button>
           <button
-            onClick={() => setSelectedDocumentIds(new Set())}
+            onClick={() => {
+              setSelectedDocumentIds(new Set());
+              setSelectAcrossPages(false);
+            }}
             disabled={bulkAction !== null}
             className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -1317,8 +1380,15 @@ export function GlobalStateDashboard({
                   <th className="px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={allPagedSelected}
-                      onChange={toggleSelectAllPaged}
+                      checked={selectAcrossPages || allPagedSelected}
+                      onChange={() => {
+                        if (selectAcrossPages) {
+                          setSelectAcrossPages(false);
+                          setSelectedDocumentIds(new Set());
+                          return;
+                        }
+                        toggleSelectAllPaged();
+                      }}
                       className="h-4 w-4 rounded border-border"
                       aria-label="Select all visible rows"
                     />

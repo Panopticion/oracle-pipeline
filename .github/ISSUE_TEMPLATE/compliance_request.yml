@@ -1,0 +1,39 @@
+name: Compliance request
+description: Request a compliance, auditability, or governance enhancement
+labels:
+  - compliance
+body:
+  - type: textarea
+    id: requirement
+    attributes:
+      label: Requirement
+      description: What requirement or control is being requested?
+      placeholder: e.g., Need exportable evidence for ...
+    validations:
+      required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Business / regulatory rationale
+      placeholder: Why this is needed and by when
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Which surfaces are affected?
+      placeholder: Dashboard, export bundle, crosswalk, etc.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence expectations
+      description: What proof artifacts should exist?
+      placeholder: Receipts, logs, metadata, signatures, etc.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
