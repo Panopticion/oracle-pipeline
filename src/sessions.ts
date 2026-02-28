@@ -34,7 +34,11 @@ import {
   chunkCrosswalkMarkdown,
   parseCorpusContent,
 } from "./content-helpers";
-import { injectWatermark } from "./watermark";
+import {
+  injectWatermark,
+  stripWatermark,
+  verifyChunkWatermark,
+} from "./watermark";
 import { PARSE_MODEL_DEFAULT } from "./constants";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -585,6 +589,8 @@ export async function saveDocumentEdit(
   documentId: string,
   userMarkdown: string,
 ): Promise<void> {
+  parseCorpusContent(userMarkdown);
+
   const { error } = await client
     .from("corpus_session_documents")
     .update({
@@ -645,7 +651,15 @@ export async function chunkDocument(
 
   // Parse frontmatter + body into a Corpus object
   const corpus = parseCorpusContent(markdown);
-  const chunks = chunkCorpus(corpus);
+  const chunks = chunkCorpus(corpus).map((chunk, index) => {
+    const normalizedContent = stripWatermark(chunk.content);
+    return {
+      ...chunk,
+      sequence: index,
+      content: normalizedContent,
+      content_hash: sha256(normalizedContent),
+    };
+  });
 
   // Store chunks and update status
   const { error: updateError } = await client
@@ -695,14 +709,36 @@ export async function watermarkDocument(
   const corpusId = corpus.corpus_id;
 
   // Watermark each chunk
-  const watermarkedChunks: CorpusChunkRaw[] = chunks.map((chunk) => ({
-    ...chunk,
-    content: injectWatermark(chunk.content, {
+  const watermarkedChunks: CorpusChunkRaw[] = chunks.map((chunk, index) => {
+    const normalizedContent = stripWatermark(chunk.content);
+    const normalizedHash = sha256(normalizedContent);
+    const sequence = Number.isInteger(chunk.sequence) ? chunk.sequence : index;
+
+    const watermarkedContent = injectWatermark(normalizedContent, {
       corpusId,
-      sequence: chunk.sequence,
-      contentHash: chunk.content_hash,
-    }),
-  }));
+      sequence,
+      contentHash: normalizedHash,
+    });
+
+    const verification = verifyChunkWatermark(watermarkedContent);
+    if (!verification.valid || !verification.payload) {
+      throw new Error(
+        `Watermark integrity check failed for chunk sequence ${String(sequence)}: ${verification.reason ?? "verification failed"}`,
+      );
+    }
+    if (verification.payload.corpusId !== corpusId || verification.payload.sequence !== sequence) {
+      throw new Error(
+        `Watermark payload mismatch for chunk sequence ${String(sequence)} (expected corpus_id=${corpusId})`,
+      );
+    }
+
+    return {
+      ...chunk,
+      sequence,
+      content: watermarkedContent,
+      content_hash: normalizedHash,
+    };
+  });
 
   // Update chunks and status
   const { error: updateError } = await client

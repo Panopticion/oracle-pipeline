@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { listSessions as listSessionsFn } from "@pipeline/sessions";
 import type { CorpusSession, SessionDocument, SessionDocumentStatus } from "@pipeline/types";
 import { parseCorpusContent } from "@pipeline/content-helpers";
+import { verifyChunkWatermark } from "@pipeline/watermark";
 import type {
   GlobalStateDocumentRow,
   GlobalStateQuery,
@@ -9,13 +10,26 @@ import type {
   GlobalStateSessionSummary,
 } from "@/lib/global-state-types";
 
-const WATERMARK_REGEX = /<!--\s*corpus-watermark:v1:[^\n]+-->\s*$/m;
-
 function hasValidWatermarkChunks(doc: SessionDocument): boolean {
   if (doc.status !== "watermarked") return false;
   const chunks = doc.chunks_json;
   if (!chunks || chunks.length === 0) return false;
-  return chunks.every((chunk) => WATERMARK_REGEX.test(chunk.content));
+
+  const markdown = (doc.user_markdown ?? doc.parsed_markdown ?? "") as string;
+  let expectedCorpusId: string;
+  try {
+    expectedCorpusId = parseCorpusContent(markdown).corpus_id;
+  } catch {
+    return false;
+  }
+
+  return chunks.every((chunk) => {
+    const verification = verifyChunkWatermark(chunk.content);
+    if (!verification.valid || !verification.payload) return false;
+    if (verification.payload.corpusId !== expectedCorpusId) return false;
+    if (verification.payload.sequence !== chunk.sequence) return false;
+    return true;
+  });
 }
 
 function deriveStage(
