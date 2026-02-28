@@ -132,6 +132,8 @@ The pipeline splits corpus bodies on headings:
 - Sections under 75 words merge into predecessor chunk
 - Target 100–400 words per section for optimal embedding quality
 - Front-load key terms in the first sentence after each heading
+- Exception for published standards: preserve clause boundaries even when a clause is short.
+- For published standards, clause identity takes priority over chunk optimization.
 
 ### Complete Example: GDPR Corpus
 
@@ -267,6 +269,8 @@ Use lowercase_snake_case domain labels:
 - Do NOT simplify legal language — compliance teams need the precise wording
 - Do NOT merge unrelated topics into one section
 - Restructure for chunking but keep all substantive content
+- For normative \`shall\` statements in published standards, preserve requirement wording with minimal editorial change.
+- Summarization is not preservation for normative requirement text.
 
 ### Fact-Check Block
 
