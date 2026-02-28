@@ -220,7 +220,12 @@ export async function insertDocumentForParse(
     organizationId?: string;
     model?: string;
   },
-): Promise<{ documentId: string; sourceHash: string; sortOrder: number }> {
+): Promise<{
+  documentId: string;
+  sourceHash: string;
+  sortOrder: number;
+  isDuplicate: boolean;
+}> {
   const model = options.model ?? PARSE_MODEL_DEFAULT;
   const sourceHash = sha256(sourceText);
   const sourceFilename = resolveSourceFilename(options.sourceFileName, sourceHash);
@@ -248,9 +253,27 @@ export async function insertDocumentForParse(
 
   if (insertError) {
     if (insertError.code === "23505") {
-      throw new Error(
-        `Document already uploaded to this session (duplicate source hash: ${sourceHash.slice(0, 12)}...)`,
-      );
+      const { data: existing, error: existingError } = await client
+        .from("corpus_session_documents")
+        .select("id, sort_order")
+        .eq("session_id", sessionId)
+        .eq("source_hash", sourceHash)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingError || !existing) {
+        throw new Error(
+          `Document already uploaded to this session (duplicate source hash: ${sourceHash.slice(0, 12)}...)`,
+        );
+      }
+
+      return {
+        documentId: existing.id as string,
+        sourceHash,
+        sortOrder: (existing.sort_order as number) ?? 0,
+        isDuplicate: true,
+      };
     }
     throw new Error(`Failed to add document: ${insertError.message}`);
   }
@@ -259,6 +282,7 @@ export async function insertDocumentForParse(
     documentId: data.id as string,
     sourceHash,
     sortOrder: count ?? 0,
+    isDuplicate: false,
   };
 }
 

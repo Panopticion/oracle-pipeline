@@ -70,7 +70,7 @@ export function DocumentUploader() {
       const resolvedSourceFileName = fileName.trim() || buildDefaultUploadName();
 
       // Insert document (fast — returns immediately)
-      const { documentId, sortOrder } = await insertDocForParse({
+      const { documentId, sortOrder, isDuplicate } = await insertDocForParse({
         data: {
           sessionId: store.sessionId,
           sourceText,
@@ -78,38 +78,45 @@ export function DocumentUploader() {
         },
       });
 
-      // Show document in "parsing" state immediately
-      store.addDocument({
-        id: documentId,
-        sessionId: store.sessionId,
-        sourceFilename: resolvedSourceFileName,
-        sourceHash: "",
-        parsedMarkdown: null,
-        parseModel: null,
-        parseTokensIn: null,
-        parseTokensOut: null,
-        status: "parsing",
-        userMarkdown: null,
-        errorMessage: null,
-        chunks: null,
-        sortOrder,
-        promotedAt: null,
-      });
+      if (!isDuplicate) {
+        // Show document in "parsing" state immediately
+        store.addDocument({
+          id: documentId,
+          sessionId: store.sessionId,
+          sourceFilename: resolvedSourceFileName,
+          sourceHash: "",
+          parsedMarkdown: null,
+          parseModel: null,
+          parseTokensIn: null,
+          parseTokensOut: null,
+          status: "parsing",
+          userMarkdown: null,
+          errorMessage: null,
+          chunks: null,
+          sortOrder,
+          promotedAt: null,
+        });
+      }
 
       // Switch to Documents tab so user sees the parsing card
       store.setTab("documents");
+      store.setActiveDocument(documentId);
 
       // Reset form (user can start another upload)
       setSourceText("");
       setFileName("");
 
-      // Fire off parse — polling picks up result when done
-      reparseDocument({ data: { documentId } }).catch(() => {
-        store.updateDocument(documentId, {
-          status: "failed",
-          errorMessage: "Parse failed — click Re-parse to retry",
+      if (!isDuplicate) {
+        // Fire off parse — polling picks up result when done
+        reparseDocument({ data: { documentId } }).catch(() => {
+          store.updateDocument(documentId, {
+            status: "failed",
+            errorMessage: "Parse failed — click Re-parse to retry",
+          });
         });
-      });
+      } else {
+        setError("This file is already in this session. Opened the existing document.");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
