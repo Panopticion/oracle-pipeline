@@ -135,7 +135,7 @@ export function CrosswalkPanel() {
                   key={d.id}
                   className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700"
                 >
-                  {d.sourceFilename} (promoted)
+                  {d.sourceHash.slice(0, 12)} (promoted)
                 </span>
               ))}
             </div>

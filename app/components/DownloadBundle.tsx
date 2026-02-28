@@ -29,7 +29,7 @@ export function DownloadBundle() {
   function getCorpusId(doc: SessionDoc): string {
     const markdown = getDocMarkdown(doc);
     const match = markdown.match(/corpus_id:\s*(.+)/);
-    return match?.[1]?.trim() ?? doc.sourceFilename.replace(/\.[^.]+$/, "");
+    return match?.[1]?.trim() ?? doc.sourceHash;
   }
 
   function slugify(text: string): string {
@@ -253,7 +253,7 @@ function buildReadme(
     "",
     ...docs.map(
       (d, i) =>
-        `${String(i + 1)}. \`${d.sourceFilename}\` — parsed by ${d.parseModel ?? "unknown"}`,
+        `${String(i + 1)}. sourceHash: \`${d.sourceHash}\``,
     ),
     "",
   ];
@@ -272,7 +272,7 @@ function buildReadme(
         (d) => {
           const markdown = d.userMarkdown ?? d.parsedMarkdown ?? "";
           const match = markdown.match(/corpus_id:\s*(.+)/);
-          const cid = match?.[1]?.trim() ?? d.sourceFilename;
+          const cid = match?.[1]?.trim() ?? d.sourceHash;
           return `| ${cid} | ${d.chunks?.length ?? 0} |`;
         },
       ),

@@ -438,8 +438,8 @@ function DocumentCard({
 
   const corpusIdMatch = markdown.match(/corpus_id:\s*(.+)/);
   const titleMatch = markdown.match(/title:\s*(.+)/);
-  const corpusId = corpusIdMatch?.[1]?.trim() ?? doc.sourceFilename;
-  const title = titleMatch?.[1]?.trim() ?? doc.sourceFilename;
+  const corpusId = corpusIdMatch?.[1]?.trim() ?? doc.sourceHash;
+  const title = titleMatch?.[1]?.trim() ?? doc.sourceHash;
 
   const isChunkOrWatermark = doc.status === "chunked" || doc.status === "watermarked";
 
@@ -463,9 +463,9 @@ function DocumentCard({
               {doc.chunks.length} chunks
             </span>
           )}
-          {doc.parseModel && (
-            <span className="text-xs text-text-muted">{doc.parseModel}</span>
-          )}
+          <span className="text-xs text-text-muted">
+            sourceHash: {doc.sourceHash.slice(0, 12)}
+          </span>
           <span
             className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.bg} ${
               doc.status === "parsing" ? "animate-pulse" : ""
@@ -605,9 +605,7 @@ function EditView({
       {/* Metadata sidebar (1/3) */}
       <div className="space-y-3">
         <MetadataField label="Status" value={badge.label} />
-        {doc.parseModel && (
-          <MetadataField label="Model" value={doc.parseModel} />
-        )}
+        <MetadataField label="Source Hash" value={doc.sourceHash} />
         {doc.parseTokensIn != null && (
           <MetadataField
             label="Tokens"
