@@ -102,12 +102,15 @@ function AuthedLayout() {
           <div className="flex min-w-0 items-center gap-4">
             <Link
               to="/"
-              className="flex shrink-0 items-center gap-2 transition-opacity hover:opacity-80"
+              className="flex shrink-0 items-center gap-2.5 rounded-md px-1 py-0.5 transition-opacity hover:opacity-80"
             >
-              <span className="text-lg font-semibold tracking-tight text-text">
-                Panopticon
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-corpus-600 text-sm font-semibold text-white">
+                P
               </span>
-              <span className="text-xs text-text-muted">Corpus Pipeline</span>
+              <span className="flex flex-col leading-tight">
+                <span className="text-sm font-semibold tracking-tight text-text">Panopticon</span>
+                <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Corpus Pipeline</span>
+              </span>
             </Link>
             <nav className="flex items-center gap-1" aria-label="Primary">
               {navItems.map((item) => (
@@ -161,7 +164,7 @@ function AuthedLayout() {
               Terms
             </a>
             <a
-              href="https://github.com/Panopticion/corpus-tools"
+              href="https://github.com/Panopticion/corpus-pipeline-cli"
               className="text-xs text-text-muted transition-colors hover:text-text"
             >
               GitHub

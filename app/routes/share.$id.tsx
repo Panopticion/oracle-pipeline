@@ -77,11 +77,14 @@ function PublicHeader() {
   return (
     <header className="bg-[#0f172a] border-b border-slate-800">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-          <span className="text-lg font-semibold tracking-tight text-white">
-            Panopticon
+        <Link to="/" className="flex items-center gap-2.5 rounded-md px-1 py-0.5 transition-opacity hover:opacity-80">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-corpus-600 text-sm font-semibold text-white">
+            P
           </span>
-          <span className="text-xs text-slate-400">Corpus Pipeline</span>
+          <span className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold tracking-tight text-white">Panopticon</span>
+            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400">Corpus Pipeline</span>
+          </span>
         </Link>
         <div className="flex items-center gap-4">
           <Link
@@ -117,7 +120,7 @@ function PublicFooter() {
             Terms
           </a>
           <a
-            href="https://github.com/Panopticion/corpus-tools"
+            href="https://github.com/Panopticion/corpus-pipeline-cli"
             className="text-xs text-slate-500 transition-colors hover:text-slate-300"
           >
             GitHub

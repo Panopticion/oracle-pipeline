@@ -1,6 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { getUser } from "@/server/session-actions";
 
+const PIPELINE_GITHUB_URL = "https://github.com/Panopticion/corpus-pipeline-cli";
+
 export const Route = createFileRoute("/")({
   beforeLoad: async () => {
     const user = await getUser();
@@ -17,13 +19,18 @@ function LandingPage() {
     <div className="min-h-screen bg-[#0f172a] text-white font-[Inter,system-ui,sans-serif]">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 max-w-6xl mx-auto">
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-semibold tracking-tight">Panopticon</span>
-          <span className="text-xs text-slate-400">Corpus Pipeline</span>
+        <div className="flex items-center gap-2.5 rounded-md px-1 py-0.5">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-600 text-sm font-semibold text-white">
+            P
+          </span>
+          <span className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold tracking-tight text-white">Panopticon</span>
+            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400">Corpus Pipeline</span>
+          </span>
         </div>
         <div className="flex items-center gap-4">
           <a
-            href="https://github.com/Panopticion/corpus-web"
+            href={PIPELINE_GITHUB_URL}
             className="text-sm text-slate-400 hover:text-white transition"
           >
             GitHub
@@ -77,7 +84,7 @@ function LandingPage() {
             Get started free
           </Link>
           <a
-            href="https://github.com/Panopticion/corpus-web"
+            href={PIPELINE_GITHUB_URL}
             className="px-6 py-3 rounded-md border border-slate-600 hover:border-slate-400 transition font-medium text-sm text-slate-300"
           >
             View on GitHub
@@ -189,7 +196,7 @@ function LandingPage() {
         </p>
         <div className="flex items-center justify-center gap-4">
           <a
-            href="https://github.com/Panopticion/corpus-web"
+            href={PIPELINE_GITHUB_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="px-5 py-2.5 rounded-md border border-slate-600 hover:border-slate-400 transition font-medium text-sm text-slate-300"
@@ -224,7 +231,7 @@ function LandingPage() {
               Terms
             </a>
             <a
-              href="https://github.com/Panopticion/corpus-web"
+              href={PIPELINE_GITHUB_URL}
               className="text-xs text-slate-500 hover:text-slate-300 transition"
             >
               GitHub
