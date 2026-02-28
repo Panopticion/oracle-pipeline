@@ -17,6 +17,6 @@
       "@pipeline/*": ["./src/*"]
     }
   },
-  "include": ["app/**/*.ts", "app/**/*.tsx", "src/**/*.ts"],
+  "include": ["app/**/*.ts", "app/**/*.tsx", "app/**/*.d.ts", "src/**/*.ts", "src/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }

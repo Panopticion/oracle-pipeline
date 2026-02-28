@@ -61,7 +61,7 @@ async function extractTextFromUpload(data: {
   }
 
   if (ext === "pdf") {
-    const pdfParseModule = await import("pdf-parse");
+    const pdfParseModule = await import("pdf-parse/lib/pdf-parse.js");
     const pdfParse = (pdfParseModule as { default?: (input: Buffer) => Promise<{ text?: string }> }).default;
     if (!pdfParse) {
       throw new Error("PDF parser is unavailable in this runtime");
