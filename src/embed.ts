@@ -32,6 +32,7 @@ import {
   LEASE_SECONDS,
   TRANSIENT_STATUS_CODES,
 } from "./constants";
+import { stripWatermark } from "./watermark";
 
 // ─── Retry helpers (modeled on openrouter.ts) ────────────────────────────────
 
@@ -145,7 +146,8 @@ function toVectorLiteral(vector: number[]): string {
 
 /** Prepare chunk text for embedding */
 function chunkTextForEmbedding(chunk: PendingChunk): string {
-  return `${chunk.section_title}\n\n${chunk.content}`.trim();
+  const cleanContent = stripWatermark(chunk.content);
+  return `${chunk.section_title}\n\n${cleanContent}`.trim();
 }
 
 // ─── Sovereignty RPC wrappers ────────────────────────────────────────────────

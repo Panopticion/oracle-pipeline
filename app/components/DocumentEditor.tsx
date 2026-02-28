@@ -5,7 +5,7 @@
  * Pipeline flow: parsed/edited → chunk → [review] → watermark → [review/done]
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSessionStore, type SessionDoc, type ChunkData } from "@/lib/stores";
 import {
   saveEdit,
@@ -393,12 +393,19 @@ function DocumentCard({
   onBackToEdit: () => void;
   onDelete: () => Promise<void>;
 }) {
-  const [editText, setEditText] = useState(
-    doc.userMarkdown ?? doc.parsedMarkdown ?? "",
-  );
+  const markdown = doc.userMarkdown ?? doc.parsedMarkdown ?? "";
+  const [editText, setEditText] = useState(markdown);
+  const previousMarkdownRef = useRef(markdown);
+
+  useEffect(() => {
+    const userHasUnsavedChanges = editText !== previousMarkdownRef.current;
+    if (!userHasUnsavedChanges) {
+      setEditText(markdown);
+    }
+    previousMarkdownRef.current = markdown;
+  }, [markdown, editText]);
 
   const badge = statusBadge[doc.status] ?? statusBadge.pending;
-  const markdown = doc.userMarkdown ?? doc.parsedMarkdown ?? "";
 
   const corpusIdMatch = markdown.match(/corpus_id:\s*(.+)/);
   const titleMatch = markdown.match(/title:\s*(.+)/);

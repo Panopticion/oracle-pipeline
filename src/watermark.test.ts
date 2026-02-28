@@ -305,6 +305,12 @@ describe("isWatermarked", () => {
       "See <!-- corpus-watermark:v1:fake:0:0000000000000000 --> above.\nMore content here.";
     expect(isWatermarked(misleading)).toBe(false);
   });
+
+  it("returns false when a valid-looking watermark is not terminal", () => {
+    const misleading =
+      "Body line\n<!-- corpus-watermark:v1:gdpr-core-v1:3:abcdef1234567890 -->\nTrailing line";
+    expect(isWatermarked(misleading)).toBe(false);
+  });
 });
 
 // ─── verifyBatch ───────────────────────────────────────────────────────────

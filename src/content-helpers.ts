@@ -31,6 +31,10 @@ function tokenCount(text: string): number {
   return Math.ceil(wordCount(text) / 0.75);
 }
 
+function startsWithSectionHeading(text: string): boolean {
+  return /^###?\s+/.test(text.trimStart());
+}
+
 /**
  * Split corpus content into chunks suitable for embedding.
  *
@@ -51,6 +55,7 @@ export function chunkCorpus(corpus: Corpus): CorpusChunkRaw[] {
   let currentLevel = 2;
   let currentLines: string[] = [];
   let headingPath = [corpus.title];
+  let currentH2Title = corpus.title;
 
   for (const line of lines) {
     const h2Match = line.match(/^##\s+(.+)/);
@@ -67,6 +72,7 @@ export function chunkCorpus(corpus: Corpus): CorpusChunkRaw[] {
       }
       currentTitle = h2Match[1].trim();
       currentLevel = 2;
+      currentH2Title = currentTitle;
       headingPath = [corpus.title, currentTitle];
       currentLines = [line]; // preserve heading in chunk content
     } else if (h3Match) {
@@ -80,7 +86,9 @@ export function chunkCorpus(corpus: Corpus): CorpusChunkRaw[] {
       }
       currentTitle = h3Match[1].trim();
       currentLevel = 3;
-      headingPath = [corpus.title, currentTitle];
+      headingPath = currentH2Title === corpus.title
+        ? [corpus.title, currentTitle]
+        : [corpus.title, currentH2Title, currentTitle];
       currentLines = [line]; // preserve heading in chunk content
     } else {
       currentLines.push(line);
@@ -102,7 +110,11 @@ export function chunkCorpus(corpus: Corpus): CorpusChunkRaw[] {
   const merged: typeof filtered = [];
 
   for (const section of filtered) {
-    if (merged.length > 0 && wordCount(section.content) < MIN_CHUNK_WORDS) {
+    if (
+      merged.length > 0 &&
+      wordCount(section.content) < MIN_CHUNK_WORDS &&
+      !startsWithSectionHeading(section.content)
+    ) {
       const prev = merged[merged.length - 1];
       prev.content += "\n\n" + section.content;
     } else {
@@ -136,6 +148,7 @@ export function chunkCrosswalkMarkdown(
   corpusId: string,
   markdown: string,
 ): CorpusChunkRaw[] {
+  void corpusId;
   const lines = markdown.split("\n");
   const sections: {
     title: string;
@@ -148,6 +161,7 @@ export function chunkCrosswalkMarkdown(
   let currentLevel = 2;
   let currentLines: string[] = [];
   let headingPath = ["Crosswalk"];
+  let currentH2Title = "Crosswalk";
 
   for (const line of lines) {
     const h2Match = line.match(/^##\s+(.+)/);
@@ -164,6 +178,7 @@ export function chunkCrosswalkMarkdown(
       }
       currentTitle = h2Match[1].trim();
       currentLevel = 2;
+      currentH2Title = currentTitle;
       headingPath = ["Crosswalk", currentTitle];
       currentLines = [line];
     } else if (h3Match) {
@@ -177,7 +192,9 @@ export function chunkCrosswalkMarkdown(
       }
       currentTitle = h3Match[1].trim();
       currentLevel = 3;
-      headingPath = ["Crosswalk", currentTitle];
+      headingPath = currentH2Title === "Crosswalk"
+        ? ["Crosswalk", currentTitle]
+        : ["Crosswalk", currentH2Title, currentTitle];
       currentLines = [line];
     } else {
       currentLines.push(line);
@@ -199,7 +216,11 @@ export function chunkCrosswalkMarkdown(
   const merged: typeof filtered = [];
 
   for (const section of filtered) {
-    if (merged.length > 0 && wordCount(section.content) < MIN_CHUNK_WORDS) {
+    if (
+      merged.length > 0 &&
+      wordCount(section.content) < MIN_CHUNK_WORDS &&
+      !startsWithSectionHeading(section.content)
+    ) {
       const prev = merged[merged.length - 1];
       prev.content += "\n\n" + section.content;
     } else {

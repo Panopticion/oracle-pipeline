@@ -31,13 +31,13 @@ export const WATERMARK_PREFIX = "corpus-watermark";
  * End-anchored to only match watermarks at the end of content.
  */
 export const WATERMARK_REGEX =
-  /<!-- corpus-watermark:(v\d+):([^:]+):(\d+):([a-f0-9]{16}) -->$/m;
+  /<!-- corpus-watermark:(v\d+):([^:]+):(\d+):([a-f0-9]{16}) -->\s*$/;
 
 /**
  * Broader regex for stripping any watermark comment (including future versions).
  * Used by stripWatermark to ensure forward-compatible removal.
  */
-const WATERMARK_STRIP_REGEX = /\n?<!-- corpus-watermark:[^\n]* -->$/;
+const WATERMARK_STRIP_TRAILING_REGEX = /\n?<!-- corpus-watermark:[^\n]* -->\s*$/;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -168,7 +168,7 @@ export function extractWatermark(content: string): WatermarkPayload | null {
  * Uses a broader pattern than extractWatermark to handle future versions.
  */
 export function stripWatermark(content: string): string {
-  return content.replace(WATERMARK_STRIP_REGEX, "").trimEnd();
+  return content.replace(WATERMARK_STRIP_TRAILING_REGEX, "").trimEnd();
 }
 
 // ─── Watermark Verification ──────────────────────────────────────────────────

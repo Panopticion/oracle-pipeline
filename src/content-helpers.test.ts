@@ -222,4 +222,37 @@ ${filler}
     expect(second).toBeDefined();
     expect(second!.content).toMatch(/^## Second Section/);
   });
+
+  it("preserves H2 -> H3 hierarchy in heading_path", () => {
+    const filler =
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.";
+    const raw = `---
+corpus_id: heading-path-test-v1
+title: Heading Path Test
+tier: tier_1
+version: 1
+frameworks: [GDPR]
+---
+
+## Parent Section
+
+${filler}
+
+### Child Section
+
+${filler}
+`;
+
+    const corpus = parseCorpusContent(raw);
+    const chunks = chunkCorpus(corpus);
+    const child = chunks.find((c) => c.section_title === "Child Section");
+
+    expect(child).toBeDefined();
+    expect(child!.heading_level).toBe(3);
+    expect(child!.heading_path).toEqual([
+      "Heading Path Test",
+      "Parent Section",
+      "Child Section",
+    ]);
+  });
 });

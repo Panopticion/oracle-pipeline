@@ -316,6 +316,26 @@ describe("embedDocumentChunks", () => {
     expect(body.input[0]).toContain("Content for chunk c1");
   });
 
+  it("strips watermark comments from embedding input", async () => {
+    const chunk = makeChunk("c1", 1);
+    chunk.content =
+      "Content for chunk c1\n<!-- corpus-watermark:v1:test-corpus:1:abcdef1234567890 -->";
+    const { client } = createMockClient([chunk]);
+
+    mockFetchOk(1);
+
+    await embedDocumentChunks(client, "doc-1", {
+      openaiApiKey: "sk-test",
+      sovereignty: testSovereignty,
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as { input: string[] };
+
+    expect(body.input[0]).toContain("Content for chunk c1");
+    expect(body.input[0]).not.toContain("corpus-watermark");
+  });
+
   it("respects maxWaitMs timeout", async () => {
     const chunks = [makeChunk("c1", 1), makeChunk("c2", 2), makeChunk("c3", 3)];
     const { client } = createMockClient(chunks);
