@@ -57,6 +57,67 @@ function extractMarkdown(raw: string): string {
   return raw.trim();
 }
 
+function extractMarkdownCandidates(raw: string): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (value: string | null | undefined) => {
+    if (!value) return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (seen.has(trimmed)) return;
+    seen.add(trimmed);
+    candidates.push(trimmed);
+  };
+
+  // 1) Existing strict extraction (single trailing fenced block or raw text).
+  push(extractMarkdown(raw));
+
+  // 2) Capture all fenced blocks anywhere in output (markdown/yaml/plain).
+  const blockRegex = /```(?:markdown|md|yaml|yml)?\s*\n([\s\S]*?)\n\s*```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = blockRegex.exec(raw)) !== null) {
+    push(match[1]);
+  }
+
+  // 3) If frontmatter appears mid-response, try slicing from first delimiter.
+  const fmIndex = raw.search(/(^|\n)---\s*\n/);
+  if (fmIndex >= 0) {
+    const start = raw[fmIndex] === "-" ? fmIndex : fmIndex + 1;
+    push(raw.slice(start));
+  }
+
+  // 4) Last resort: full raw trimmed response.
+  push(raw);
+
+  return candidates;
+}
+
+function selectValidCorpusMarkdown(raw: string): {
+  markdown: string | null;
+  parseError: string | null;
+  fallback: string;
+} {
+  const candidates = extractMarkdownCandidates(raw);
+  const fallback = candidates[0] ?? raw.trim();
+  let lastError: string | null = null;
+
+  for (const candidate of candidates) {
+    try {
+      parseCorpusContent(candidate);
+      return { markdown: candidate, parseError: null, fallback };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  return {
+    markdown: null,
+    parseError: lastError ?? "Unknown parse validation error",
+    fallback,
+  };
+}
+
 // ─── Session CRUD ───────────────────────────────────────────────────────────
 
 /**
@@ -356,21 +417,16 @@ export async function addAndParseDocument(
       },
     );
 
-    const parsedMarkdown = extractMarkdown(result.content);
-
-    // Validate AI output
-    try {
-      parseCorpusContent(parsedMarkdown);
-    } catch (parseErr) {
-      const msg =
-        parseErr instanceof Error ? parseErr.message : String(parseErr);
+    const selected = selectValidCorpusMarkdown(result.content);
+    if (!selected.markdown) {
+      const msg = selected.parseError ?? "Unknown parse validation error";
 
       await client
         .from("corpus_session_documents")
         .update({
           status: "failed",
           error_message: `AI output failed validation: ${msg}`,
-          parsed_markdown: parsedMarkdown,
+          parsed_markdown: selected.fallback,
           parse_tokens_in: result.inputTokens,
           parse_tokens_out: result.outputTokens,
         })
@@ -380,6 +436,8 @@ export async function addAndParseDocument(
         `AI produced invalid corpus Markdown: ${msg}\n\nRaw output saved to document ${documentId} for inspection.`,
       );
     }
+
+    const parsedMarkdown = selected.markdown;
 
     // Update document with parsed result
     await client
@@ -460,21 +518,16 @@ export async function reparseDocument(
       },
     );
 
-    const parsedMarkdown = extractMarkdown(result.content);
-
-    // Validate
-    try {
-      parseCorpusContent(parsedMarkdown);
-    } catch (parseErr) {
-      const msg =
-        parseErr instanceof Error ? parseErr.message : String(parseErr);
+    const selected = selectValidCorpusMarkdown(result.content);
+    if (!selected.markdown) {
+      const msg = selected.parseError ?? "Unknown parse validation error";
 
       await client
         .from("corpus_session_documents")
         .update({
           status: "failed",
           error_message: `AI output failed validation: ${msg}`,
-          parsed_markdown: parsedMarkdown,
+          parsed_markdown: selected.fallback,
           parse_tokens_in: result.inputTokens,
           parse_tokens_out: result.outputTokens,
         })
@@ -482,6 +535,8 @@ export async function reparseDocument(
 
       throw new Error(`AI produced invalid corpus Markdown: ${msg}`);
     }
+
+    const parsedMarkdown = selected.markdown;
 
     // Update with result
     await client

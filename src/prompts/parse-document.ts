@@ -289,28 +289,19 @@ Example: "GDPR Core Requirements" → \`gdpr-core-requirements-v1\``;
 
 const OUTPUT = `## Output — RESPONSE FORMAT
 
-Respond with ONLY a fenced code block containing the complete corpus Markdown (frontmatter + body). No commentary, no explanations, no preamble outside the code block.
+Respond with ONLY the final corpus Markdown document (frontmatter + body), starting at the first \`---\` delimiter.
+Do NOT include conversational text, analysis, prefacing, or roleplay.
+Do NOT address the user by name.
+Do NOT include phrases like "Great question", "let me break this down", or any narrative explanation.
+Do NOT wrap the output in code fences.
+Do NOT include watermark comments (watermarking happens later in the pipeline).
 
-\`\`\`
-\`\`\`markdown
----
-corpus_id: ...
-title: ...
-[full frontmatter]
----
+Your first 3 characters MUST be:
+\`---\`
 
-## First Section
-
-[content]
-
-## Second Section
-
-[content]
-\`\`\`
-\`\`\`
+Your output MUST be a single complete Markdown document.
 
 Requirements:
-- The code block MUST use the \`markdown\` language tag
 - ALL frontmatter fields must be present (required + all applicable optional)
 - The body MUST contain at least 3 \`##\` sections
 - The body MUST NOT contain any \`#\` (H1) headings
