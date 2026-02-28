@@ -43,10 +43,142 @@ import {
 
 const TEXT_EXTENSIONS = new Set(["txt", "md", "markdown", "json", "yaml", "yml"]);
 
+const PDF_NOISE_LINE_PATTERNS: RegExp[] = [
+  /^SNV\s*\/\s*licensed to\s+/i,
+  /^COPYRIGHT PROTECTED DOCUMENT$/i,
+  /^ISO copyright office$/i,
+  /^CP\s*401\b/i,
+  /^CH-?1214\b/i,
+  /^Phone:\s*\+/i,
+  /^Email:\s*/i,
+  /^Website:\s*/i,
+  /^Published in Switzerland$/i,
+  /^Price based on \d+ pages$/i,
+  /^Reference number$/i,
+  /^INTERNATIONAL\s+STANDARD$/i,
+  /^ICS\s+[0-9.;\s\t-]+$/i,
+  /^Table\s+A\.1\s*\(continued\)/i,
+  /^©\s*ISO\/IEC\s*20\d{2}\s*[–-]\s*All rights reserved$/i,
+];
+
 function getExtension(fileName: string): string {
   const idx = fileName.lastIndexOf(".");
   if (idx < 0) return "";
   return fileName.slice(idx + 1).toLowerCase();
+}
+
+function normalizeWhitespace(line: string): string {
+  return line.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function collapseSpacedLetters(line: string): string {
+  return line.replace(/\b(?:[A-Za-z]\s+){3,}[A-Za-z]\b/g, (match) =>
+    match.replace(/\s+/g, ""),
+  );
+}
+
+function normalizeClauseNumberSpacing(line: string): string {
+  // Fix OCR/extraction artifacts like "7. 2" -> "7.2" and "6.1. 3" -> "6.1.3".
+  return line.replace(/(\d\.)\s+(\d)/g, "$1$2");
+}
+
+function normalizeExtractedPdfLine(line: string): string {
+  let normalized = line.replace(/\u00A0/g, " ").replace(/[\t\f\v]+/g, " ");
+  normalized = collapseSpacedLetters(normalized);
+  normalized = normalizeClauseNumberSpacing(normalized);
+  normalized = normalized.replace(/\s{2,}/g, " ");
+  return normalized.trimEnd();
+}
+
+function isLikelyPageMarker(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  if (/^\d{1,3}$/.test(trimmed)) return true;
+  if (/^[ivxlcdm]{1,8}$/i.test(trimmed)) return true;
+  return false;
+}
+
+function isLikelyTableOfContentsLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+
+  // Dotted leader rows common in generated PDF contents pages.
+  if (/\.{3,}\s*\d+\s*$/.test(trimmed)) return true;
+
+  // Numbered heading + trailing page number pattern.
+  if (/^(?:[A-Za-z]\s+)?\d+(?:\.\d+)*\s+.+\s+\d{1,3}$/.test(trimmed)) return true;
+
+  // Clause list rows with repeated spacing and page number.
+  if (/^(?:Annex|Bibliography|Foreword|Introduction|Scope|Normative references|Terms and definitions)\b.*\d{1,3}\s*$/i.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isStructuralNoiseLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+
+  if (/^Contents\s+Page$/i.test(trimmed)) return true;
+  if (/^Reference number$/i.test(trimmed)) return true;
+
+  return false;
+}
+
+export function cleanExtractedPdfText(raw: string): string {
+  const normalized = raw.replace(/\r\n?/g, "\n");
+  const lines = normalized
+    .split("\n")
+    .map((line) => normalizeExtractedPdfLine(line));
+
+  const frequency = new Map<string, number>();
+  for (const line of lines) {
+    const key = normalizeWhitespace(line);
+    if (!key) continue;
+    frequency.set(key, (frequency.get(key) ?? 0) + 1);
+  }
+
+  const filtered = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return true;
+
+    if (isStructuralNoiseLine(trimmed)) {
+      return false;
+    }
+
+    if (PDF_NOISE_LINE_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+      return false;
+    }
+
+    if (isLikelyPageMarker(trimmed)) {
+      return false;
+    }
+
+    if (isLikelyTableOfContentsLine(trimmed)) {
+      return false;
+    }
+
+    const key = normalizeWhitespace(trimmed);
+    const appearsOften = (frequency.get(key) ?? 0) >= 3;
+    if (!appearsOften) return true;
+
+    // Strip highly repeated running headers/footers only.
+    if (
+      key.includes("iso/iec 27001:2022") ||
+      key.includes("snv / licensed to") ||
+      key.includes("all rights reserved")
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return filtered
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 async function extractTextFromUpload(data: {
@@ -67,7 +199,7 @@ async function extractTextFromUpload(data: {
       throw new Error("PDF parser is unavailable in this runtime");
     }
     const parsed = await pdfParse(buffer);
-    return parsed.text ?? "";
+    return cleanExtractedPdfText(parsed.text ?? "");
   }
 
   if (ext === "docx") {
