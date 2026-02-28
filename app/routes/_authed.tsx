@@ -83,6 +83,12 @@ function Breadcrumbs() {
 function AuthedLayout() {
   const { user } = Route.useRouteContext();
 
+  const navItems = [
+    { to: "/sessions", label: "Sessions" },
+    { to: "/encyclopedia", label: "Encyclopedia" },
+    { to: "/state", label: "Global State" },
+  ] as const;
+
   async function handleSignOut() {
     const supabase = getSupabaseBrowser();
     await supabase.auth.signOut();
@@ -91,43 +97,38 @@ function AuthedLayout() {
 
   return (
     <div className="flex min-h-screen flex-col bg-surface-alt">
-      {/* Dark header — matches landing page */}
-      <header className="bg-[#0f172a]">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
+      <header className="border-b border-border bg-surface">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3">
+          <div className="flex min-w-0 items-center gap-4">
             <Link
               to="/"
-              className="flex items-center gap-2 transition-opacity hover:opacity-80"
+              className="flex shrink-0 items-center gap-2 transition-opacity hover:opacity-80"
             >
-              <span className="text-lg font-semibold tracking-tight text-white">
+              <span className="text-lg font-semibold tracking-tight text-text">
                 Panopticon
               </span>
-              <span className="text-xs text-slate-400">Corpus Pipeline</span>
+              <span className="text-xs text-text-muted">Corpus Pipeline</span>
             </Link>
-            <Link
-              to="/sessions"
-              className="text-sm text-slate-400 transition-colors hover:text-white"
-            >
-              Sessions
-            </Link>
-            <Link
-              to="/state"
-              className="text-sm text-slate-400 transition-colors hover:text-white"
-            >
-              Global State
-            </Link>
-            <Link
-              to="/encyclopedia"
-              className="text-sm text-slate-400 transition-colors hover:text-white"
-            >
-              Encyclopedia
-            </Link>
+            <nav className="flex items-center gap-1" aria-label="Primary">
+              {navItems.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="rounded-md px-3 py-1.5 text-sm font-medium text-text-muted transition-colors hover:bg-surface-alt hover:text-text"
+                  activeProps={{
+                    className: "rounded-md bg-corpus-100 px-3 py-1.5 text-sm font-medium text-corpus-700",
+                  }}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-slate-400">{user.email}</span>
+          <div className="flex shrink-0 items-center gap-4">
+            <span className="text-xs text-text-muted">{user.email}</span>
             <button
               onClick={handleSignOut}
-              className="text-sm text-slate-400 transition-colors hover:text-white"
+              className="rounded-md px-2 py-1 text-sm text-text-muted transition-colors hover:bg-surface-alt hover:text-text"
             >
               Sign out
             </button>
@@ -141,28 +142,27 @@ function AuthedLayout() {
         <Outlet />
       </main>
 
-      {/* Dark footer — matches landing page */}
-      <footer className="bg-[#0f172a]">
+      <footer className="border-t border-border bg-surface">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-6 sm:flex-row">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-text-muted">
             &copy; 2025 Panopticon AI. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <a
               href="https://panopticonlabs.ai/privacy"
-              className="text-xs text-slate-500 transition-colors hover:text-slate-300"
+              className="text-xs text-text-muted transition-colors hover:text-text"
             >
               Privacy
             </a>
             <a
               href="https://panopticonlabs.ai/terms"
-              className="text-xs text-slate-500 transition-colors hover:text-slate-300"
+              className="text-xs text-text-muted transition-colors hover:text-text"
             >
               Terms
             </a>
             <a
               href="https://github.com/Panopticion/corpus-tools"
-              className="text-xs text-slate-500 transition-colors hover:text-slate-300"
+              className="text-xs text-text-muted transition-colors hover:text-text"
             >
               GitHub
             </a>

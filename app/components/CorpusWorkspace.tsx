@@ -131,17 +131,17 @@ function getCurrentStep(docs: SessionDoc[], crosswalkMd: string | null): number 
 
 function PipelineSteps({ currentStep }: { currentStep: number }) {
   return (
-    <div className="mb-6 flex items-center gap-1 text-xs">
+    <div className="mb-6 flex flex-wrap items-center gap-1.5 text-xs">
       {PIPELINE_STEPS.map((step, i) => (
-        <div key={step} className="flex items-center gap-1">
-          {i > 0 && <span className="mx-0.5 text-text-muted/40">&rarr;</span>}
+        <div key={step} className="flex items-center gap-1.5">
+          {i > 0 && <span className="mx-0.5 text-text-muted/40">→</span>}
           <span
             className={`rounded-full px-2.5 py-1 font-medium transition-colors ${
               i < currentStep
-                ? "bg-green-100 text-green-700"
+                ? "bg-corpus-50 text-corpus-700"
                 : i === currentStep
-                  ? "bg-corpus-100 text-corpus-700"
-                  : "bg-surface-alt text-text-muted/50"
+                  ? "bg-corpus-600 text-white"
+                  : "bg-surface-alt text-text-muted"
             }`}
           >
             {step}
@@ -291,7 +291,7 @@ function SharePanel({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-10 mt-2 w-72 rounded-lg border border-border bg-white p-4 shadow-lg">
+        <div className="absolute right-0 top-full z-10 mt-2 w-72 rounded-lg border border-border bg-surface p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm font-medium text-text">Share session</span>
             <button
@@ -660,20 +660,27 @@ export function CorpusWorkspace({ session, documents }: Props) {
       </div>
 
       {/* Tabs */}
-      <div className="mb-2 flex gap-1 border-b border-border">
+      <div className="mb-2 rounded-lg border border-border bg-surface p-1">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => handleSetTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-corpus-500/40 ${
               currentTab === tab.key
-                ? "border-b-2 border-corpus-600 text-corpus-600"
-                : "text-text-muted hover:text-text"
+                ? "bg-corpus-100 text-corpus-700"
+                : "text-text-muted hover:bg-surface-alt hover:text-text"
             }`}
+            aria-current={currentTab === tab.key ? "page" : undefined}
           >
             {tab.label}
             {tab.badge ? (
-              <span className="ml-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-corpus-100 text-xs text-corpus-700">
+              <span
+                className={`ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs ${
+                  currentTab === tab.key
+                    ? "bg-corpus-200 text-corpus-800"
+                    : "bg-surface-alt text-text-muted"
+                }`}
+              >
                 {tab.badge}
               </span>
             ) : null}
@@ -682,7 +689,9 @@ export function CorpusWorkspace({ session, documents }: Props) {
       </div>
 
       {/* Tab helper text */}
-      <p className="mb-6 text-xs text-text-muted">{TAB_HELP[currentTab]}</p>
+      <p className="mb-6 rounded-md border border-border bg-surface px-3 py-2 text-xs text-text-muted">
+        {TAB_HELP[currentTab]}
+      </p>
 
       {/* Tab content */}
       <div>

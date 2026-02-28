@@ -200,10 +200,10 @@ function PublicSessionView() {
       <PublicHeader />
 
       {/* Session banner */}
-      <div className="border-b border-border bg-white">
+      <div className="border-b border-border bg-surface">
         <div className="mx-auto max-w-6xl px-6 py-6">
           <div className="flex items-center gap-3">
-            <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
+            <span className="rounded-full bg-corpus-100 px-2.5 py-0.5 text-xs font-medium text-corpus-700">
               Public
             </span>
             <span className="text-xs text-text-muted">
@@ -220,20 +220,27 @@ function PublicSessionView() {
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
         {/* Tabs */}
-        <div className="mb-6 flex gap-1 border-b border-border">
+        <div className="mb-6 rounded-lg border border-border bg-surface p-1">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`inline-flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-corpus-500/40 ${
                 activeTab === tab.key
-                  ? "border-b-2 border-corpus-600 text-corpus-600"
-                  : "text-text-muted hover:text-text"
+                  ? "bg-corpus-100 text-corpus-700"
+                  : "text-text-muted hover:bg-surface-alt hover:text-text"
               }`}
+              aria-current={activeTab === tab.key ? "page" : undefined}
             >
               {tab.label}
               {"badge" in tab && tab.badge ? (
-                <span className="ml-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-corpus-100 text-xs text-corpus-700">
+                <span
+                  className={`ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs ${
+                    activeTab === tab.key
+                      ? "bg-corpus-200 text-corpus-800"
+                      : "bg-surface-alt text-text-muted"
+                  }`}
+                >
                   {tab.badge}
                 </span>
               ) : null}
@@ -255,7 +262,7 @@ function PublicSessionView() {
         )}
 
         {activeTab === "crosswalk" && session.crosswalk_markdown && (
-          <div className="rounded-lg border border-border bg-white p-6">
+          <div className="rounded-lg border border-border bg-surface p-6">
             <h2 className="mb-4 text-sm font-semibold text-text">
               Cross-Framework Crosswalk
             </h2>
@@ -266,7 +273,7 @@ function PublicSessionView() {
         )}
 
         {/* CTA */}
-        <div className="mt-12 rounded-lg border border-slate-200 bg-white p-8 text-center">
+        <div className="mt-12 rounded-lg border border-border bg-surface p-8 text-center">
           <h2 className="mb-2 text-lg font-semibold text-text">
             Create your own corpus sessions
           </h2>
@@ -276,7 +283,7 @@ function PublicSessionView() {
           </p>
           <Link
             to="/auth/signup"
-            className="inline-block rounded-md bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500"
+            className="inline-block rounded-md bg-corpus-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-corpus-700"
           >
             Get started free
           </Link>
