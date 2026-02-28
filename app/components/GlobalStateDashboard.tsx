@@ -42,6 +42,7 @@ interface OpsPreferenceState {
   refreshIntervalSeconds: RefreshIntervalSeconds;
   pageSize: number;
   visibleColumns: Record<ColumnKey, boolean>;
+  showAdvancedControls?: boolean;
 }
 
 interface ActionLogEntry {
@@ -198,6 +199,7 @@ export function GlobalStateDashboard({
   const [page, setPage] = useState(initialQuery?.page ?? data.pagination.page);
 
   const [operatorMode, setOperatorMode] = useState(false);
+  const [showAdvancedControls, setShowAdvancedControls] = useState(false);
   const [showColumnControls, setShowColumnControls] = useState(false);
   const [showActionLog, setShowActionLog] = useState(false);
 
@@ -252,6 +254,7 @@ export function GlobalStateDashboard({
         setRefreshIntervalSeconds(parsed.refreshIntervalSeconds ?? 30);
         setPageSize(parsed.pageSize ?? 50);
         setVisibleColumns(parsed.visibleColumns ?? DEFAULT_VISIBLE_COLUMNS);
+        setShowAdvancedControls(parsed.showAdvancedControls ?? false);
       }
     } catch {
       // ignore invalid local storage payload
@@ -292,9 +295,10 @@ export function GlobalStateDashboard({
       refreshIntervalSeconds,
       pageSize,
       visibleColumns,
+      showAdvancedControls,
     };
     localStorage.setItem(STORAGE_PREFS_KEY, JSON.stringify(prefs));
-  }, [refreshIntervalSeconds, pageSize, visibleColumns]);
+  }, [refreshIntervalSeconds, pageSize, visibleColumns, showAdvancedControls]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_VIEWS_KEY, JSON.stringify(savedViews));
@@ -349,6 +353,19 @@ export function GlobalStateDashboard({
     () => selectedRows.filter((row) => actionForRow(row) === "watermark"),
     [selectedRows],
   );
+
+  const workflowCounts = useMemo(() => {
+    const parseReady = rows.filter((row) => actionForRow(row) === "parse").length;
+    const chunkReady = rows.filter((row) => actionForRow(row) === "chunk").length;
+    const watermarkReady = rows.filter((row) => actionForRow(row) === "watermark").length;
+    const complete = rows.filter((row) => row.status === "watermarked").length;
+    return {
+      parseReady,
+      chunkReady,
+      watermarkReady,
+      complete,
+    };
+  }, [rows]);
 
   const allPagedSelected =
     pagedRows.length > 0 && pagedRows.every((row) => selectedDocumentIds.has(row.documentId));
@@ -481,7 +498,12 @@ export function GlobalStateDashboard({
       updateRowsAfterActionSuccess(row, action, nowIso);
 
       const durationMs = Math.round(performance.now() - started);
-      const successMessage = `${actionLabel(action, false)} completed for ${row.sourceFilename}`;
+      const successMessage =
+        action === "parse"
+          ? `${row.sourceFilename}: parse queued. Next: open session and review parsed output.`
+          : action === "chunk"
+            ? `${row.sourceFilename}: chunking complete. Next: run watermark to lock provenance.`
+            : `${row.sourceFilename}: watermark complete. Next: promote or continue toward crosswalk.`;
       pushToast("success", successMessage);
       appendActionLog({
         timestamp: new Date().toISOString(),
@@ -590,7 +612,12 @@ export function GlobalStateDashboard({
 
     setBulkAction(null);
 
-    const summaryMessage = `Bulk ${action}: ${String(successCount)} succeeded, ${String(failureCount)} failed`;
+    const summaryMessage =
+      action === "parse"
+        ? `Bulk parse complete: ${String(successCount)} succeeded, ${String(failureCount)} failed. Next: review parsed outputs.`
+        : action === "chunk"
+          ? `Bulk chunk complete: ${String(successCount)} succeeded, ${String(failureCount)} failed. Next: run watermark.`
+          : `Bulk watermark complete: ${String(successCount)} succeeded, ${String(failureCount)} failed. Next: promote and generate crosswalk.`;
     pushToast(failureCount === 0 ? "success" : "error", summaryMessage);
   }
 
@@ -865,15 +892,6 @@ export function GlobalStateDashboard({
           >
             {refreshing ? "Refreshing..." : "Refresh now"}
           </button>
-          <label className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs text-text-muted">
-            <input
-              type="checkbox"
-              checked={operatorMode}
-              onChange={(event) => setOperatorMode(event.target.checked)}
-              className="h-4 w-4 rounded border-border"
-            />
-            Operator mode
-          </label>
         </div>
       </div>
 
@@ -916,11 +934,87 @@ export function GlobalStateDashboard({
         />
       </div>
 
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold text-text">Start Here</p>
+            <span className="rounded-full bg-corpus-100 px-2 py-0.5 text-[11px] font-medium text-corpus-700">
+              Guided path
+            </span>
+          </div>
+          <div className="space-y-2 text-xs text-text-muted">
+            <div className="flex items-center justify-between rounded-md border border-border bg-surface-alt px-3 py-2">
+              <span>1. Parse documents needing attention</span>
+              <button
+                onClick={() => {
+                  setPreset("attention");
+                  setStage("parse");
+                  setPage(1);
+                }}
+                className="rounded-md border border-border bg-white px-2.5 py-1 text-xs font-medium text-text hover:bg-surface"
+              >
+                View {String(workflowCounts.parseReady)}
+              </button>
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-border bg-surface-alt px-3 py-2">
+              <span>2. Chunk parsed documents</span>
+              <button
+                onClick={() => {
+                  setPreset("all");
+                  setStage("chunk");
+                  setPage(1);
+                }}
+                className="rounded-md border border-border bg-white px-2.5 py-1 text-xs font-medium text-text hover:bg-surface"
+              >
+                View {String(workflowCounts.chunkReady)}
+              </button>
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-border bg-surface-alt px-3 py-2">
+              <span>3. Watermark for export integrity</span>
+              <button
+                onClick={() => {
+                  setPreset("all");
+                  setStage("watermark");
+                  setPage(1);
+                }}
+                className="rounded-md border border-border bg-white px-2.5 py-1 text-xs font-medium text-text hover:bg-surface"
+              >
+                View {String(workflowCounts.watermarkReady)}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <p className="mb-3 text-sm font-semibold text-text">Proof & Trust Signals</p>
+          <div className="space-y-2 text-xs text-text-muted">
+            <div className="rounded-md border border-border bg-surface-alt px-3 py-2">
+              Provenance guarantee: watermark-backed chunk integrity is tracked per document.
+            </div>
+            <div className="rounded-md border border-border bg-surface-alt px-3 py-2">
+              Audit trail: all write actions are captured in the in-browser activity log.
+            </div>
+            <div className="rounded-md border border-border bg-surface-alt px-3 py-2">
+              Export integrity: failures can be exported for review before downstream use.
+            </div>
+          </div>
+          <p className="mt-3 text-[11px] text-text-muted">
+            Completed (watermarked): {String(workflowCounts.complete)} of {String(rows.length)} documents.
+          </p>
+        </div>
+      </div>
+
       <div className="rounded-lg border border-border bg-surface p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Filters</p>
           <div className="flex items-center gap-2">
             <p className="text-xs text-text-muted">{String(pagination.total)} results</p>
+            <button
+              onClick={() => setShowAdvancedControls((current) => !current)}
+              className="rounded-md border border-border px-2.5 py-1 text-xs text-text-muted hover:bg-surface-alt"
+            >
+              {showAdvancedControls ? "Hide advanced" : "Show advanced"}
+            </button>
             <button
               onClick={resetFilters}
               className="rounded-md border border-border px-2.5 py-1 text-xs text-text-muted hover:bg-surface-alt"
@@ -1007,67 +1101,78 @@ export function GlobalStateDashboard({
           </select>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            onClick={saveCurrentView}
-            className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
-          >
-            Save current view
-          </button>
+        {showAdvancedControls && (
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs text-text-muted">
+                <input
+                  type="checkbox"
+                  checked={operatorMode}
+                  onChange={(event) => setOperatorMode(event.target.checked)}
+                  className="h-4 w-4 rounded border-border"
+                />
+                Enable write actions
+              </label>
+              <button
+                onClick={saveCurrentView}
+                className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
+              >
+                Save current view
+              </button>
 
-          <select
-            value={selectedViewId}
-            onChange={(event) => {
-              const value = event.target.value;
-              setSelectedViewId(value);
-              if (value) applyView(value);
-            }}
-            className="rounded-md border border-border bg-white px-3 py-1.5 text-xs text-text outline-none"
-          >
-            <option value="">Apply saved view</option>
-            {savedViews.map((view) => (
-              <option key={view.id} value={view.id}>
-                {view.name}
-              </option>
-            ))}
-          </select>
+              <select
+                value={selectedViewId}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSelectedViewId(value);
+                  if (value) applyView(value);
+                }}
+                className="rounded-md border border-border bg-white px-3 py-1.5 text-xs text-text outline-none"
+              >
+                <option value="">Apply saved view</option>
+                {savedViews.map((view) => (
+                  <option key={view.id} value={view.id}>
+                    {view.name}
+                  </option>
+                ))}
+              </select>
 
-          {selectedViewId && (
-            <button
-              onClick={() => deleteView(selectedViewId)}
-              className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
-            >
-              Delete view
-            </button>
-          )}
+              {selectedViewId && (
+                <button
+                  onClick={() => deleteView(selectedViewId)}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
+                >
+                  Delete view
+                </button>
+              )}
 
-          <button
-            onClick={() => setShowColumnControls((current) => !current)}
-            className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
-          >
-            {showColumnControls ? "Hide columns" : "Show columns"}
-          </button>
+              <button
+                onClick={() => setShowColumnControls((current) => !current)}
+                className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
+              >
+                {showColumnControls ? "Hide columns" : "Show columns"}
+              </button>
 
-          <button
-            onClick={exportFailuresCsv}
-            className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
-          >
-            Export failures CSV
-          </button>
+              <button
+                onClick={exportFailuresCsv}
+                className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
+              >
+                Export issues CSV
+              </button>
 
-          <button
-            onClick={() => setShowActionLog((current) => !current)}
-            className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
-          >
-            {showActionLog ? "Hide action log" : "Show action log"}
-          </button>
+              <button
+                onClick={() => setShowActionLog((current) => !current)}
+                className="rounded-md border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
+              >
+                {showActionLog ? "Hide activity log" : "Show activity log"}
+              </button>
 
-          <p className="ml-auto text-[11px] text-text-muted">
-            Keyboard: J/K move · R parse · C chunk · W watermark
-          </p>
-        </div>
+              <p className="ml-auto text-[11px] text-text-muted">
+                Keyboard shortcuts: J/K move · R parse · C chunk · W watermark
+              </p>
+            </div>
 
-        {showColumnControls && (
+            {showColumnControls && (
           <div className="mt-3 flex flex-wrap gap-3 rounded-md border border-border bg-surface-alt p-3 text-xs">
             {(
               [
@@ -1089,6 +1194,8 @@ export function GlobalStateDashboard({
                 {label}
               </label>
             ))}
+          </div>
+            )}
           </div>
         )}
       </div>
