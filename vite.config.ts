@@ -5,13 +5,8 @@ import tsConfigPaths from "vite-tsconfig-paths";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  build: {
-    commonjsOptions: {
-      dynamicRequireTargets: [
-        "node_modules/pdf-parse/lib/pdf-parse.js",
-        "node_modules/pdf-parse/lib/pdf.js/*/build/pdf.js",
-      ],
-    },
+  ssr: {
+    external: ["pdf-parse", "pdf-parse/lib/pdf-parse.js"],
   },
   plugins: [
     tanstackStart({ srcDirectory: "app" }),
