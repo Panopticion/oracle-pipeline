@@ -17,6 +17,8 @@
     "cli": "tsx src/cli.ts",
     "worker": "tsx src/worker.ts",
     "worker:dev": "tsx watch src/worker.ts",
+    "harness:parse-watermark": "tsx scripts/harness.parse-watermark.ts",
+    "harness:parse-watermark:keep": "KEEP_HARNESS_ARTIFACTS=true tsx scripts/harness.parse-watermark.ts",
     "test": "vitest run",
     "test:cli": "vitest run src/cli.test.ts",
     "test:validator": "vitest run src/validate.test.ts",

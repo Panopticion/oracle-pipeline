@@ -172,6 +172,24 @@ npm run typecheck # TypeScript strict mode
 npm run lint      # ESLint
 ```
 
+### Parse → Watermark Harness (DB-backed)
+
+Run a live end-to-end harness for the production call chain
+(`createSession -> addAndParseDocument -> chunkDocument -> watermarkDocument`) with cryptographic
+verification of stored chunk watermarks:
+
+```bash
+pnpm harness:parse-watermark
+```
+
+Required env vars: `VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENROUTER_API_KEY`.
+
+Optional:
+
+- `HARNESS_SOURCE_FILE=path/to/input.txt` to override default source text.
+- `KEEP_HARNESS_ARTIFACTS=true` (or `pnpm harness:parse-watermark:keep`) to retain session/doc
+  artifacts for debugging.
+
 ## Supabase Type Generation
 
 Generate strongly typed DB definitions into [app/lib/supabase.types.ts](app/lib/supabase.types.ts):
