@@ -1,7 +1,10 @@
 name: UX polish
 description: Suggest a small usability or copy improvement
+title: "[UX] "
 labels:
   - ux
+assignees:
+  - shf
 body:
   - type: textarea
     id: problem

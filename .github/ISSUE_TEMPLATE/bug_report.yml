@@ -1,7 +1,10 @@
 name: Bug report
 description: Report a defect in corpus-web behavior
+title: "[Bug] "
 labels:
   - bug
+assignees:
+  - shf
 body:
   - type: textarea
     id: summary

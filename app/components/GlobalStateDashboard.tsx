@@ -22,6 +22,8 @@ interface ToastMessage {
   id: string;
   kind: "success" | "error";
   text: string;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 interface SavedView {
@@ -153,11 +155,17 @@ function SummaryCard({
   );
 }
 
-function makeToast(kind: ToastMessage["kind"], text: string): ToastMessage {
+function makeToast(
+  kind: ToastMessage["kind"],
+  text: string,
+  options?: Pick<ToastMessage, "actionLabel" | "onAction">,
+): ToastMessage {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     kind,
     text,
+    actionLabel: options?.actionLabel,
+    onAction: options?.onAction,
   };
 }
 
@@ -228,8 +236,12 @@ export function GlobalStateDashboard({
     [framework, page, pageSize, preset, query, sessionId, sortDirection, sortKey, stage],
   );
 
-  const pushToast = (kind: ToastMessage["kind"], text: string) => {
-    const toast = makeToast(kind, text);
+  const pushToast = (
+    kind: ToastMessage["kind"],
+    text: string,
+    options?: Pick<ToastMessage, "actionLabel" | "onAction">,
+  ) => {
+    const toast = makeToast(kind, text, options);
     setToasts((current) => [...current, toast]);
     setTimeout(() => {
       setToasts((current) => current.filter((item) => item.id !== toast.id));
@@ -645,6 +657,9 @@ export function GlobalStateDashboard({
       return next;
     });
 
+    const priorSelection = new Set(selectedDocumentIds);
+    const priorSelectAcrossPages = selectAcrossPages;
+
     setBulkAction(null);
     setSelectAcrossPages(false);
     setSelectedDocumentIds(new Set());
@@ -655,7 +670,13 @@ export function GlobalStateDashboard({
         : action === "chunk"
           ? `Bulk chunk complete: ${String(successCount)} succeeded, ${String(failureCount)} failed. Next: run watermark.`
           : `Bulk watermark complete: ${String(successCount)} succeeded, ${String(failureCount)} failed. Next: promote and generate crosswalk.`;
-    pushToast(failureCount === 0 ? "success" : "error", summaryMessage);
+    pushToast(failureCount === 0 ? "success" : "error", summaryMessage, {
+      actionLabel: "Undo selection",
+      onAction: () => {
+        setSelectAcrossPages(priorSelectAcrossPages);
+        setSelectedDocumentIds(priorSelection);
+      },
+    });
   }
 
   function changeSort(next: SortKey) {
@@ -900,7 +921,20 @@ export function GlobalStateDashboard({
                   : "border-error/30 bg-error/10 text-error"
               }`}
             >
-              {toast.text}
+              <div className="flex items-center justify-between gap-2">
+                <span>{toast.text}</span>
+                {toast.actionLabel && toast.onAction && (
+                  <button
+                    onClick={() => {
+                      toast.onAction?.();
+                      setToasts((current) => current.filter((item) => item.id !== toast.id));
+                    }}
+                    className="rounded border border-current/30 px-1.5 py-0.5 text-[11px] font-medium hover:bg-white/60"
+                  >
+                    {toast.actionLabel}
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -1309,16 +1343,22 @@ export function GlobalStateDashboard({
 
       {hasBulkSelection && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3">
-          <p className="text-xs text-text-muted">
+          <p className="text-xs text-text-muted" title="Bulk actions run only on rows eligible for that stage">
             {selectAcrossPages
               ? `All filtered results selected (${String(pagination.total)})`
               : `${String(selectedRows.length)} selected`}
           </p>
+          {selectAcrossPages && (
+            <p className="text-[11px] text-text-muted">
+              Actions apply across all filtered pages and skip ineligible rows.
+            </p>
+          )}
           <button
             onClick={() => {
               void runBulkAction("parse");
             }}
             disabled={!operatorMode || bulkAction !== null || (!selectAcrossPages && selectedParseRows.length === 0)}
+            title={!operatorMode ? "Enable write actions in Advanced controls" : "Run parse for selected eligible rows"}
             className="rounded-md bg-corpus-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-corpus-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {bulkAction === "parse"
@@ -1332,6 +1372,7 @@ export function GlobalStateDashboard({
               void runBulkAction("chunk");
             }}
             disabled={!operatorMode || bulkAction !== null || (!selectAcrossPages && selectedChunkRows.length === 0)}
+            title={!operatorMode ? "Enable write actions in Advanced controls" : "Run chunk for selected eligible rows"}
             className="rounded-md bg-corpus-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-corpus-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {bulkAction === "chunk"
@@ -1345,6 +1386,7 @@ export function GlobalStateDashboard({
               void runBulkAction("watermark");
             }}
             disabled={!operatorMode || bulkAction !== null || (!selectAcrossPages && selectedWatermarkRows.length === 0)}
+            title={!operatorMode ? "Enable write actions in Advanced controls" : "Run watermark for selected eligible rows"}
             className="rounded-md bg-corpus-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-corpus-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {bulkAction === "watermark"
@@ -1533,6 +1575,7 @@ export function GlobalStateDashboard({
                                   void runRowAction(row);
                                 }}
                                 disabled={!operatorMode || isBusy || bulkAction !== null}
+                                title={!operatorMode ? "Enable write actions in Advanced controls" : undefined}
                                 className="inline-flex whitespace-nowrap rounded-md bg-corpus-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-corpus-700 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 {actionLabel(rowAction, isBusy)}

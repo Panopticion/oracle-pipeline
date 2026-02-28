@@ -1,7 +1,10 @@
 name: Compliance request
 description: Request a compliance, auditability, or governance enhancement
+title: "[Compliance] "
 labels:
   - compliance
+assignees:
+  - shf
 body:
   - type: textarea
     id: requirement
