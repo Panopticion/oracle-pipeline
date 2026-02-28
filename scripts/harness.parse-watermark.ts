@@ -9,8 +9,9 @@ import {
   getSessionDocuments,
   watermarkDocument,
 } from "../src/sessions";
-import { parseCorpusContent } from "../src/content-helpers";
-import { verifyChunkWatermark } from "../src/watermark";
+import type { SessionDocument } from "../src/types.ts";
+import { parseCorpusContent } from "../src/content-helpers.ts";
+import { verifyChunkWatermark } from "../src/watermark.ts";
 
 const DEFAULT_SOURCE_TEXT = `
 NIST SP 800-53 Rev. 5 — Access Control (AC) Family (Excerpt)
@@ -31,7 +32,8 @@ for remote access pathways.
 `.trim();
 
 function requiredEnv(name: string): string {
-  const value = process.env[name]?.trim();
+  const raw = process.env[name] ?? "";
+  const value = raw.replace(/\\[nr]/g, "").trim();
   if (!value) {
     throw new Error(`Missing required env var: ${name}`);
   }
@@ -94,7 +96,7 @@ async function main() {
     );
 
     const docs = await getSessionDocuments(client, session.id);
-    const doc = docs.find((item) => item.id === parseResult.documentId);
+    const doc = docs.find((item: SessionDocument) => item.id === parseResult.documentId);
     if (!doc) {
       throw new Error("Harness failed: parsed document not found in session");
     }
