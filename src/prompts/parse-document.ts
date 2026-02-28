@@ -327,7 +327,23 @@ The uploaded source is a published standard or primary source text.
 - Keep normative distinctions explicit (requirements vs selectable controls).
 - Preserve clause identifiers and cross-references where present.
 - Do not invent obligations not present in the source.
-- If text appears ambiguous or incomplete, represent it conservatively rather than elaborating.`;
+- If text appears ambiguous or incomplete, represent it conservatively rather than elaborating.
+
+Structure preservation requirements (strict):
+- Preserve heading hierarchy exactly when present (clause, sub-clause, sub-sub-clause).
+- Do NOT merge neighboring clauses into one section (e.g., keep 6.2 and 6.3 separate if both exist).
+- Keep audit and management-review sub-clauses distinct when present (e.g., 9.2.1 vs 9.2.2, 9.3.1/9.3.2/9.3.3).
+- Preserve documented-information substructure when present (e.g., 7.5.1/7.5.2/7.5.3).
+
+Normative vs informative boundary requirements:
+- Preserve NOTE blocks as explicit NOTE text; do not rewrite NOTES as mandatory statements.
+- Never convert NOTE language into "shall" obligations.
+- Keep "shall" requirements and informative commentary separable in the output.
+
+Fidelity constraints:
+- Prefer minimally edited wording over paraphrase for normative requirements.
+- Do not normalize away meaningful modals/qualifiers (e.g., "can", "may", "as applicable").
+- If a section is absent from source text, do not synthesize it.`;
   }
 
   if (profile === "interpretation") {
