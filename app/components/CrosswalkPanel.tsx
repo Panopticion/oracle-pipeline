@@ -19,6 +19,7 @@ export function CrosswalkPanel() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [lastOutcome, setLastOutcome] = useState<string | null>(null);
 
   // Sync editText when crosswalk arrives from polling
   useEffect(() => {
@@ -41,6 +42,7 @@ export function CrosswalkPanel() {
     if (!store.sessionId) return;
     setGenerating(true);
     setError(null);
+    setLastOutcome(null);
 
     try {
       // Ensure session is marked complete first
@@ -59,6 +61,7 @@ export function CrosswalkPanel() {
         setError(err instanceof Error ? err.message : "Crosswalk generation failed");
         store.setSessionStatus("complete");
       });
+      setLastOutcome("Crosswalk job submitted. Next: review generated mapping and export from Download.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Crosswalk generation failed");
       setGenerating(false);
@@ -79,6 +82,20 @@ export function CrosswalkPanel() {
 
   return (
     <div className="space-y-4">
+      {store.documents.length === 0 && (
+        <div className="rounded-lg border border-border bg-surface p-6">
+          <p className="text-sm text-text-muted">
+            No documents yet. Upload and parse at least one document to begin a crosswalk.
+          </p>
+          <button
+            onClick={() => store.setTab("upload")}
+            className="mt-3 rounded-md border border-border bg-white px-4 py-2 text-xs font-medium text-text hover:bg-surface-alt"
+          >
+            Go to Upload
+          </button>
+        </div>
+      )}
+
       {/* Generation controls */}
       <div className="rounded-lg border border-border bg-surface p-6">
         <h2 className="mb-2 text-sm font-semibold text-text">
@@ -163,6 +180,8 @@ export function CrosswalkPanel() {
             relationships. This may take 1-2 minutes.
           </p>
         )}
+
+        {lastOutcome && <p className="mt-3 text-xs text-emerald-700">{lastOutcome}</p>}
       </div>
 
       {/* Crosswalk result */}
@@ -212,6 +231,7 @@ export function CrosswalkPanel() {
                   navigator.clipboard.writeText(store.crosswalkMarkdown ?? "");
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2000);
+                  setLastOutcome("Crosswalk copied. Next: download the full evidence bundle.");
                 }}
                 className="rounded-md border border-border px-4 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
               >

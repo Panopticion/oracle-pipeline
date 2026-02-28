@@ -1,5 +1,12 @@
 # Panopticon AI
 
+## Repository map
+
+| Repository                        | Purpose                                                               |
+| --------------------------------- | --------------------------------------------------------------------- |
+| `Panopticion/corpus-web`          | Web app for upload, review, chunk/watermark, crosswalk, and export UX |
+| `Panopticion/corpus-pipeline-cli` | Public CLI/runtime, worker, MCP server, and sample corpora            |
+
 **Compliance-grade corpus ingestion pipeline.** Validate, chunk, watermark, and embed regulatory
 documents into Postgres 17 + pgvector with full sovereignty attribution.
 
@@ -7,7 +14,7 @@ Every vector traces to a registered authority and egress policy. Not a conventio
 constraint. Un-attributed vectors can't exist.
 
 [Documentation](https://panopticonlabs.ai) · [Quickstart](https://panopticonlabs.ai/quickstart) ·
-[GitHub](https://github.com/Panopticion/corpora-pipeline)
+[GitHub](https://github.com/Panopticion/corpus-web)
 
 ## Why This Exists
 
@@ -40,8 +47,8 @@ Corpus Markdown → Validate → Chunk → Watermark → Embed (OpenAI) → Post
 No database. No API keys. No Docker.
 
 ```bash
-git clone https://github.com/Panopticion/corpora-pipeline.git
-cd corpora-pipeline
+git clone https://github.com/Panopticion/corpus-web.git
+cd corpus-web
 npm install
 
 npx tsx src/cli.ts --action validate

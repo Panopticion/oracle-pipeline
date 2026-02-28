@@ -103,12 +103,56 @@ export function DownloadBundle() {
     navigator.clipboard.writeText(getDocMarkdown(doc));
   }
 
+  function downloadSessionReceipt() {
+    const payload = {
+      sessionId: store.sessionId,
+      sessionName: store.sessionName,
+      generatedAt: new Date().toISOString(),
+      status: store.sessionStatus,
+      counts: {
+        documents: store.documents.length,
+        readyDocuments: readyDocs.length,
+        watermarkedDocuments: watermarkedDocs.length,
+        crosswalkPresent: Boolean(store.crosswalkMarkdown),
+      },
+      documents: store.documents.map((doc) => ({
+        id: doc.id,
+        sourceFilename: doc.sourceFilename,
+        sourceHash: doc.sourceHash,
+        status: doc.status,
+        chunkCount: doc.chunks?.length ?? 0,
+        promotedAt: doc.promotedAt,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `session-receipt-${slugify(store.sessionName)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-border bg-surface p-6">
         <h2 className="mb-2 text-sm font-semibold text-text">
           Download Bundle
         </h2>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-corpus-100 px-2 py-0.5 text-[11px] font-medium text-corpus-700">
+            Provenance-ready
+          </span>
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+            Audit-friendly
+          </span>
+          <span className="rounded-full bg-surface-alt px-2 py-0.5 text-[11px] font-medium text-text-muted">
+            Export integrity
+          </span>
+        </div>
         <p className="mb-4 text-xs text-text-muted">
           Download all documents, clean + watermarked chunks, and crosswalk as a ZIP.
           {watermarkedDocs.length < readyDocs.length && (
@@ -195,6 +239,25 @@ export function DownloadBundle() {
         >
           Download ZIP
         </button>
+
+        <button
+          onClick={downloadSessionReceipt}
+          className="ml-2 rounded-md border border-border px-4 py-2 text-xs text-text-muted hover:bg-surface-alt"
+        >
+          Download session receipt (JSON)
+        </button>
+
+        {!hasContent && (
+          <div className="mt-4 rounded-md border border-border bg-surface-alt p-3 text-xs text-text-muted">
+            No exportable content yet. Next: parse in Documents, then return here to export.
+            <button
+              onClick={() => store.setTab("documents")}
+              className="ml-2 rounded-md border border-border bg-white px-2.5 py-1 text-xs font-medium text-text hover:bg-surface"
+            >
+              Go to Documents
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Individual document copy */}

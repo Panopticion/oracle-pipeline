@@ -693,6 +693,37 @@ export function CorpusWorkspace({ session, documents }: Props) {
         {TAB_HELP[currentTab]}
       </p>
 
+      <div className="mb-6 rounded-md border border-border bg-surface p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          First success checklist
+        </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <button
+            onClick={() => handleSetTab("upload")}
+            className="flex items-center justify-between rounded-md border border-border bg-surface-alt px-3 py-2 text-xs text-text-muted hover:bg-surface"
+          >
+            <span>1. Upload a document</span>
+            <span className={docs.length > 0 ? "text-emerald-700" : "text-text-muted"}>{docs.length > 0 ? "✓" : "•"}</span>
+          </button>
+          <button
+            onClick={() => handleSetTab("documents")}
+            className="flex items-center justify-between rounded-md border border-border bg-surface-alt px-3 py-2 text-xs text-text-muted hover:bg-surface"
+          >
+            <span>2. Chunk + watermark</span>
+            <span className={docs.some((d) => d.status === "watermarked") ? "text-emerald-700" : "text-text-muted"}>
+              {docs.some((d) => d.status === "watermarked") ? "✓" : "•"}
+            </span>
+          </button>
+          <button
+            onClick={() => handleSetTab("crosswalk")}
+            className="flex items-center justify-between rounded-md border border-border bg-surface-alt px-3 py-2 text-xs text-text-muted hover:bg-surface"
+          >
+            <span>3. Generate crosswalk</span>
+            <span className={Boolean(crosswalkMd) ? "text-emerald-700" : "text-text-muted"}>{crosswalkMd ? "✓" : "•"}</span>
+          </button>
+        </div>
+      </div>
+
       {/* Tab content */}
       <div>
         {currentTab === "upload" && <DocumentUploader />}

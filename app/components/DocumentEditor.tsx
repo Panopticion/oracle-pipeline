@@ -40,6 +40,12 @@ export function DocumentEditor() {
         <p className="text-sm text-text-muted">
           No documents yet. Go to the Upload tab to add compliance documents.
         </p>
+        <button
+          onClick={() => store.setTab("upload")}
+          className="mt-4 rounded-md border border-border bg-white px-4 py-2 text-xs font-medium text-text hover:bg-surface-alt"
+        >
+          Go to Upload
+        </button>
       </div>
     );
   }

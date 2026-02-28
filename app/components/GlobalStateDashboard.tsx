@@ -367,6 +367,14 @@ export function GlobalStateDashboard({
     };
   }, [rows]);
 
+  const quickFilterCounts = useMemo(() => {
+    const needsParse = rows.filter((row) => actionForRow(row) === "parse").length;
+    const needsChunk = rows.filter((row) => actionForRow(row) === "chunk").length;
+    const needsWatermark = rows.filter((row) => actionForRow(row) === "watermark").length;
+    const failed = rows.filter((row) => row.status === "failed").length;
+    return { needsParse, needsChunk, needsWatermark, failed };
+  }, [rows]);
+
   const allPagedSelected =
     pagedRows.length > 0 && pagedRows.every((row) => selectedDocumentIds.has(row.documentId));
 
@@ -637,6 +645,11 @@ export function GlobalStateDashboard({
     setStage("all");
     setFramework("all");
     setPage(1);
+  }
+
+  function sortIndicator(key: SortKey): string {
+    if (sortKey !== key) return "";
+    return sortDirection === "asc" ? "↑" : "↓";
   }
 
   function toggleRowSelected(documentId: string) {
@@ -1101,6 +1114,50 @@ export function GlobalStateDashboard({
           </select>
         </div>
 
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-text-muted">Quick filters:</span>
+          <button
+            onClick={() => {
+              setPreset("attention");
+              setStage("parse");
+              setPage(1);
+            }}
+            className="rounded-full border border-border bg-surface-alt px-2.5 py-1 text-xs text-text-muted hover:bg-surface"
+          >
+            Needs Parse ({String(quickFilterCounts.needsParse)})
+          </button>
+          <button
+            onClick={() => {
+              setPreset("all");
+              setStage("chunk");
+              setPage(1);
+            }}
+            className="rounded-full border border-border bg-surface-alt px-2.5 py-1 text-xs text-text-muted hover:bg-surface"
+          >
+            Needs Chunk ({String(quickFilterCounts.needsChunk)})
+          </button>
+          <button
+            onClick={() => {
+              setPreset("all");
+              setStage("watermark");
+              setPage(1);
+            }}
+            className="rounded-full border border-border bg-surface-alt px-2.5 py-1 text-xs text-text-muted hover:bg-surface"
+          >
+            Needs Watermark ({String(quickFilterCounts.needsWatermark)})
+          </button>
+          <button
+            onClick={() => {
+              setPreset("failed");
+              setStage("failed");
+              setPage(1);
+            }}
+            className="rounded-full border border-border bg-surface-alt px-2.5 py-1 text-xs text-text-muted hover:bg-surface"
+          >
+            Failures ({String(quickFilterCounts.failed)})
+          </button>
+        </div>
+
         {showAdvancedControls && (
           <div className="mt-3 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -1268,13 +1325,25 @@ export function GlobalStateDashboard({
                   </th>
                   <th className="px-4 py-3">Document</th>
                   {visibleColumns.session && <th className="px-4 py-3">Session</th>}
-                  {visibleColumns.stage && <th className="px-4 py-3">Stage</th>}
-                  {visibleColumns.status && <th className="px-4 py-3">Status</th>}
+                  {visibleColumns.stage && (
+                    <th className="px-4 py-3">
+                      <button onClick={() => changeSort("stage")} className="hover:text-text">
+                        Stage {sortIndicator("stage")}
+                      </button>
+                    </th>
+                  )}
+                  {visibleColumns.status && (
+                    <th className="px-4 py-3">
+                      <button onClick={() => changeSort("status")} className="hover:text-text">
+                        Status {sortIndicator("status")}
+                      </button>
+                    </th>
+                  )}
                   {visibleColumns.blocker && <th className="px-4 py-3">Blocker</th>}
                   {visibleColumns.updated && (
                     <th className="px-4 py-3">
                       <button onClick={() => changeSort("updatedAt")} className="hover:text-text">
-                        Updated
+                        Updated {sortIndicator("updatedAt")}
                       </button>
                     </th>
                   )}

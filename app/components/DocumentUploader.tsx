@@ -13,6 +13,27 @@ import { useSessionWorkflowOps } from "@/lib/use-session-workflow-ops";
 const TEXT_EXTENSIONS = new Set(["txt", "md", "markdown", "json", "yaml", "yml"]);
 const EXTRACT_EXTENSIONS = new Set(["pdf", "docx"]);
 
+const SAMPLE_DOCUMENT_TEXT = `---
+title: Sample Compliance Control Policy
+frameworks: [SOC2, ISO27001]
+tier: tier_1
+jurisdictions: [US]
+domain: access-control
+---
+
+## Access Provisioning
+
+All user access is approved by a system owner and reviewed quarterly.
+
+## Authentication Controls
+
+Multi-factor authentication is required for privileged accounts.
+
+## Logging and Monitoring
+
+Administrative actions are logged and retained for at least 12 months.
+`;
+
 function getExtension(fileName: string): string {
   const idx = fileName.lastIndexOf(".");
   if (idx < 0) return "";
@@ -57,12 +78,14 @@ export function DocumentUploader() {
   const [extracting, setExtracting] = useState(false);
   const [isPublishedStandard, setIsPublishedStandard] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastOutcome, setLastOutcome] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleParse() {
     if (!sourceText.trim() || !store.sessionId) return;
     setSubmitting(true);
     setError(null);
+    setLastOutcome(null);
 
     try {
       const resolvedSourceFileName = fileName.trim() || buildDefaultUploadName();
@@ -115,6 +138,7 @@ export function DocumentUploader() {
             errorMessage: "Parse failed — click Re-parse to retry",
           });
         });
+        setLastOutcome("Document queued for parse. Next: review output in Documents.");
       } else {
         setError("This file is already in this session. Opened the existing document.");
       }
@@ -175,6 +199,22 @@ export function DocumentUploader() {
         <h2 className="mb-4 text-sm font-semibold text-text">
           Upload a compliance document
         </h2>
+        <p className="mb-4 text-xs text-text-muted">
+          First run? Load a sample, parse it, then continue to Chunk and Watermark in Documents.
+        </p>
+
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => {
+              setSourceText(SAMPLE_DOCUMENT_TEXT);
+              setFileName("sample-compliance-policy.md");
+              setError(null);
+            }}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-text-muted hover:bg-surface-alt"
+          >
+            Use sample document
+          </button>
+        </div>
 
         {/* File input */}
         <div className="mb-4">
@@ -251,6 +291,10 @@ export function DocumentUploader() {
         >
           {extracting ? "Extracting..." : submitting ? "Uploading..." : "Parse Document"}
         </button>
+
+        {lastOutcome && (
+          <p className="mt-3 text-xs text-emerald-700">{lastOutcome}</p>
+        )}
       </div>
     </div>
   );
