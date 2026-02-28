@@ -34,6 +34,7 @@
     "mammoth": "^1.11.0",
     "nitro": "^3.0.0",
     "pdf-parse": "1.1.1",
+    "pdfjs-dist": "^5.4.624",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zustand": "^5.0.3"
