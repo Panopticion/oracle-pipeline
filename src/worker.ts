@@ -22,12 +22,32 @@ import {
   completeJob,
   failJob,
   reapStaleJobs,
+  updateJobProgress,
   type Job,
 } from "./job-queue";
 import {
   reparseDocument,
   generateCrosswalk,
 } from "./sessions";
+
+function loadEnvironmentFiles() {
+  if (typeof process.loadEnvFile !== "function") return;
+
+  const candidates = [
+    new URL("../.env.local", import.meta.url),
+    new URL("../.env", import.meta.url),
+  ];
+
+  for (const fileUrl of candidates) {
+    try {
+      process.loadEnvFile(fileUrl);
+    } catch {
+      // File missing or unreadable — continue to next candidate.
+    }
+  }
+}
+
+loadEnvironmentFiles();
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +59,10 @@ const REAP_INTERVAL_MS = 60_000; // Check for stale jobs every 60s
 
 function getClient() {
   const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key =
+    process.env.SUPABASE_SERVICE_KEY
+    ?? process.env.SUPABASE_SERVICE_ROLE_KEY
+    ?? process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !key) {
     console.error(
@@ -73,10 +96,23 @@ async function handleParseDocument(
 
   console.log(`  [parse] documentId=${documentId}`);
 
+  await updateJobProgress(client, job.id, {
+    step: "claimed",
+    message: "Worker claimed parse job",
+  });
+
   // Parse only — user reviews, then triggers chunk/watermark manually
   const result = await reparseDocument(client, documentId, {
     openrouterApiKey: getOpenRouterKey(),
     parsePromptProfile,
+    onProgress: async (progress) => {
+      await updateJobProgress(client, job.id, progress);
+    },
+  });
+
+  await updateJobProgress(client, job.id, {
+    step: "completed",
+    message: "Parse job completed",
   });
 
   return {

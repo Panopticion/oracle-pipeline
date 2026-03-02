@@ -10,6 +10,7 @@ import {
   reparseDocumentResult,
   saveCrosswalkEditResult,
   saveEditResult,
+  stopParseJobResult,
   watermarkDocResult,
 } from "@/server/session-actions";
 import type { ServerResult } from "@/lib/global-state-types";
@@ -69,6 +70,11 @@ export function useSessionWorkflowOps() {
     return unwrapServerResult(result);
   }, []);
 
+  const stopParseJob = useCallback(async (data: { documentId: string }) => {
+    const result = await stopParseJobResult({ data });
+    return unwrapServerResult(result);
+  }, []);
+
   const saveEdit = useCallback(async (data: { documentId: string; userMarkdown: string }) => {
     const result = await saveEditResult({ data });
     return unwrapServerResult(result);
@@ -113,6 +119,7 @@ export function useSessionWorkflowOps() {
     extractUploadText,
     insertDocForParse,
     reparseDocument,
+    stopParseJob,
     saveEdit,
     removeDocument,
     chunkDocument,

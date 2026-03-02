@@ -276,6 +276,16 @@ export async function loadGlobalDocumentState(params: {
 
   const documents = (documentsRaw ?? []) as SessionDocument[];
   const nowMs = Date.now();
+  const parseJobByDocumentId = new Map<string, {
+    id: number;
+    status: "pending" | "in_progress" | "done" | "failed";
+    retryCount: number;
+    maxRetries: number;
+    updatedAt: string;
+    error: string | null;
+    step: string | null;
+    message: string | null;
+  }>();
 
   const warningMeta = new Map<string, { count: number; preview: string[] }>();
   if (documents.length > 0) {
@@ -304,6 +314,49 @@ export async function loadGlobalDocumentState(params: {
         count: current.count + warningCount,
         preview: [...current.preview, ...warnings].slice(0, 3),
       });
+    }
+
+    const jobFetchLimit = Math.max(200, documentIds.length * 8);
+    const { data: parseJobs, error: parseJobsError } = await params.service
+      .from("corpus_jobs")
+      .select("id, payload, status, retry_count, max_retries, updated_at, error, result")
+      .eq("kind", "parse_document")
+      .order("id", { ascending: false })
+      .limit(jobFetchLimit);
+
+    if (parseJobsError) {
+      throw new Error(`Failed to load parse job telemetry: ${parseJobsError.message}`);
+    }
+
+    const remainingDocumentIds = new Set(documentIds);
+    for (const row of (parseJobs ?? []) as Array<{
+      id: number;
+      payload: Record<string, unknown> | null;
+      status: "pending" | "in_progress" | "done" | "failed";
+      retry_count: number;
+      max_retries: number;
+      updated_at: string;
+      error: string | null;
+      result: Record<string, unknown> | null;
+    }>) {
+      const documentId = typeof row.payload?.documentId === "string"
+        ? row.payload.documentId
+        : null;
+      if (!documentId || !remainingDocumentIds.has(documentId)) continue;
+
+      parseJobByDocumentId.set(documentId, {
+        id: row.id,
+        status: row.status,
+        retryCount: row.retry_count,
+        maxRetries: row.max_retries,
+        updatedAt: row.updated_at,
+        error: row.error,
+        step: typeof row.result?.step === "string" ? row.result.step : null,
+        message: typeof row.result?.message === "string" ? row.result.message : null,
+      });
+
+      remainingDocumentIds.delete(documentId);
+      if (remainingDocumentIds.size === 0) break;
     }
   }
 
@@ -337,6 +390,7 @@ export async function loadGlobalDocumentState(params: {
         watermarkValid,
         auditWarningCount: auditWarnings.count,
         auditWarningPreview: auditWarnings.preview,
+        parseJob: parseJobByDocumentId.get(doc.id) ?? null,
         updatedAt: doc.updated_at,
         stale: isStale,
         attentionReason,

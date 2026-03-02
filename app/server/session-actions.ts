@@ -333,6 +333,70 @@ export const runGlobalStateAction = createServerFn({ method: "POST" })
         };
       }
 
+      if (data.action === "stop_parse") {
+        const { data: activeJob, error: activeJobError } = await service
+          .from("corpus_jobs")
+          .select("id")
+          .eq("kind", "parse_document")
+          .contains("payload", { documentId: data.documentId })
+          .in("status", ["pending", "in_progress"])
+          .order("id", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (activeJobError) {
+          fail("DEPENDENCY_ERROR", `Failed to locate parse job: ${activeJobError.message}`, 500);
+        }
+
+        if (!activeJob) {
+          return {
+            documentId: data.documentId,
+            action: "stop_parse",
+            status: "completed",
+          };
+        }
+
+        const cancelledAt = new Date().toISOString();
+
+        const { error: cancelJobError } = await service
+          .from("corpus_jobs")
+          .update({
+            status: "failed",
+            error: "Cancelled by user",
+            result: {
+              step: "cancelled",
+              message: "Cancelled by user",
+              updatedAt: cancelledAt,
+            },
+          })
+          .eq("id", activeJob.id)
+          .in("status", ["pending", "in_progress"]);
+
+        if (cancelJobError) {
+          fail("DEPENDENCY_ERROR", `Failed to cancel parse job: ${cancelJobError.message}`, 500);
+        }
+
+        const { error: documentError } = await service
+          .from("corpus_session_documents")
+          .update({
+            status: "failed",
+            error_message: "Parse cancelled by user",
+          })
+          .eq("id", data.documentId)
+          .in("status", ["pending", "parsing"]);
+
+        if (documentError) {
+          fail("DEPENDENCY_ERROR", `Failed to mark document cancelled: ${documentError.message}`, 500);
+        }
+
+        return {
+          documentId: data.documentId,
+          action: "stop_parse",
+          status: "completed",
+          jobId: activeJob.id,
+        };
+      }
+
       if (data.action === "chunk") {
         const result = await chunkDocumentFn(service, data.documentId);
         return {
@@ -550,6 +614,78 @@ export const reparseDocumentResult = createServerFn({ method: "POST" })
       });
 
       return { documentId: data.documentId, jobId };
+    }),
+  );
+
+export const stopParseJobResult = createServerFn({ method: "POST" })
+  .inputValidator((data: { documentId: string }) => data)
+  .handler(async ({ data }) =>
+    asServerResult(async () => {
+      const user = await requireUser();
+      const service = getSupabaseService();
+
+      await requireOwnedDocument(service, data.documentId, user.id);
+
+      const { data: activeJob, error: activeJobError } = await service
+        .from("corpus_jobs")
+        .select("id")
+        .eq("kind", "parse_document")
+        .contains("payload", { documentId: data.documentId })
+        .in("status", ["pending", "in_progress"])
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activeJobError) {
+        fail("DEPENDENCY_ERROR", `Failed to locate parse job: ${activeJobError.message}`, 500);
+      }
+
+      if (!activeJob) {
+        return {
+          documentId: data.documentId,
+          cancelled: false,
+          reason: "No active parse job found",
+        };
+      }
+
+      const cancelledAt = new Date().toISOString();
+
+      const { error: cancelJobError } = await service
+        .from("corpus_jobs")
+        .update({
+          status: "failed",
+          error: "Cancelled by user",
+          result: {
+            step: "cancelled",
+            message: "Cancelled by user",
+            updatedAt: cancelledAt,
+          },
+        })
+        .eq("id", activeJob.id)
+        .in("status", ["pending", "in_progress"]);
+
+      if (cancelJobError) {
+        fail("DEPENDENCY_ERROR", `Failed to cancel parse job: ${cancelJobError.message}`, 500);
+      }
+
+      const { error: documentError } = await service
+        .from("corpus_session_documents")
+        .update({
+          status: "failed",
+          error_message: "Parse cancelled by user",
+        })
+        .eq("id", data.documentId)
+        .in("status", ["pending", "parsing"]);
+
+      if (documentError) {
+        fail("DEPENDENCY_ERROR", `Failed to mark document cancelled: ${documentError.message}`, 500);
+      }
+
+      return {
+        documentId: data.documentId,
+        cancelled: true,
+        jobId: activeJob.id,
+      };
     }),
   );
 

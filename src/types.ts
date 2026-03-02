@@ -333,6 +333,17 @@ export interface SessionDocument {
   audit_warning_count?: number | null;
   /** Short warning preview from chunk-audit stage. */
   audit_warning_preview?: string[] | null;
+  /** Latest parse job telemetry from corpus_jobs for this document. */
+  parse_job?: {
+    id: number;
+    status: "pending" | "in_progress" | "done" | "failed";
+    retry_count: number;
+    max_retries: number;
+    updated_at: string;
+    error: string | null;
+    step?: string | null;
+    message?: string | null;
+  } | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -415,6 +426,12 @@ export interface SessionParseOptions {
   };
   /** Prompt profile to control parse behavior for source type */
   parsePromptProfile?: ParsePromptProfile;
+  /** Optional parse progress callback for worker telemetry */
+  onProgress?: (progress: {
+    step: string;
+    message: string;
+    details?: Record<string, unknown>;
+  }) => Promise<void> | void;
 }
 
 /** Result of adding and parsing a document in a session. */

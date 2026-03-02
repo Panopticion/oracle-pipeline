@@ -21,6 +21,7 @@ export function DocumentEditor() {
     saveEdit,
     removeDocument,
     reparseDocument,
+    stopParseJob,
     chunkDocument,
     watermarkDocument,
     promoteDocument,
@@ -30,6 +31,7 @@ export function DocumentEditor() {
   const [chunking, setChunking] = useState<string | null>(null);
   const [watermarking, setWatermarking] = useState<string | null>(null);
   const [promoting, setPromoting] = useState<string | null>(null);
+  const [stopping, setStopping] = useState<string | null>(null);
   const [reparseProfileByDocId, setReparseProfileByDocId] = useState<
     Record<string, ParsePromptProfile>
   >({});
@@ -87,6 +89,16 @@ export function DocumentEditor() {
               errorMessage: null,
               userMarkdown: null,
               chunks: null,
+              parseJob: {
+                id: doc.parseJob?.id ?? 0,
+                status: "pending",
+                retryCount: doc.parseJob?.retryCount ?? 0,
+                maxRetries: doc.parseJob?.maxRetries ?? 3,
+                updatedAt: new Date().toISOString(),
+                error: null,
+                step: "queued",
+                message: "Queued for worker",
+              },
             });
             setReparsing(null);
             // Fire off parse — polling picks up result when done
@@ -95,6 +107,20 @@ export function DocumentEditor() {
               parsePromptProfile:
                 reparseProfileByDocId[doc.id] ?? "published_standard",
             })
+              .then((result) => {
+                store.updateDocument(doc.id, {
+                  parseJob: {
+                    id: result.jobId as number,
+                    status: "pending",
+                    retryCount: 0,
+                    maxRetries: 3,
+                    updatedAt: new Date().toISOString(),
+                    error: null,
+                    step: "queued",
+                    message: "Queued for worker",
+                  },
+                });
+              })
               .then(() => undefined)
               .catch(() => {
                 store.updateDocument(doc.id, {
@@ -102,6 +128,29 @@ export function DocumentEditor() {
                   errorMessage: "Parse failed — click Re-parse to retry",
                 });
               });
+          }}
+          stopping={stopping === doc.id}
+          onStopParse={async () => {
+            setStopping(doc.id);
+            try {
+              await stopParseJob({ documentId: doc.id });
+              store.updateDocument(doc.id, {
+                status: "failed",
+                errorMessage: "Parse cancelled by user",
+                parseJob: {
+                  id: doc.parseJob?.id ?? 0,
+                  status: "failed",
+                  retryCount: doc.parseJob?.retryCount ?? 0,
+                  maxRetries: doc.parseJob?.maxRetries ?? 3,
+                  updatedAt: new Date().toISOString(),
+                  error: "Cancelled by user",
+                  step: "cancelled",
+                  message: "Cancelled by user",
+                },
+              });
+            } finally {
+              setStopping(null);
+            }
           }}
           reparseProfile={
             reparseProfileByDocId[doc.id] ?? "published_standard"
@@ -217,21 +266,87 @@ const statusBadge: Record<string, { bg: string; label: string }> = {
 
 // ─── Parsing Indicator ──────────────────────────────────────────────────────
 
-function ParsingIndicator() {
+const PARSE_STEP_ORDER = ["queued", "claimed", "chunk_audit", "parse", "persist", "completed"] as const;
+
+function stepLabel(step: string): string {
+  if (step === "queued") return "Queued";
+  if (step === "claimed") return "Worker claimed job";
+  if (step === "chunk_audit") return "Cleaning source chunks";
+  if (step === "parse") return "Generating corpus markdown";
+  if (step === "persist") return "Saving parsed output";
+  if (step === "completed") return "Completed";
+  if (step === "cancelled") return "Cancelled";
+  return "Processing";
+}
+
+function ParsingIndicator({
+  parseJob,
+  stopping,
+  onStop,
+}: {
+  parseJob: SessionDoc["parseJob"];
+  stopping: boolean;
+  onStop: () => Promise<void>;
+}) {
+  const activeStep = parseJob?.step ?? (parseJob?.status === "pending" ? "queued" : parseJob?.status === "in_progress" ? "claimed" : "queued");
+  const activeIndex = Math.max(0, PARSE_STEP_ORDER.indexOf(activeStep as (typeof PARSE_STEP_ORDER)[number]));
+
   return (
-    <div className="flex flex-col items-center justify-center py-12">
-      <div className="mb-4 flex gap-1.5">
-        <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-corpus-500" />
-        <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-corpus-500 [animation-delay:150ms]" />
-        <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-corpus-500 [animation-delay:300ms]" />
+    <div className="space-y-4 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-text">AI parsing in progress...</p>
+          <p className="mt-1 text-xs text-text-muted">
+            Live pipeline steps update as the worker advances.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            void onStop();
+          }}
+          disabled={stopping}
+          className="rounded-md border border-error/30 px-3 py-1.5 text-xs font-medium text-error hover:bg-error/5 disabled:opacity-50"
+        >
+          {stopping ? "Stopping..." : "Stop job"}
+        </button>
       </div>
-      <p className="text-sm font-medium text-text">
-        AI parsing in progress...
-      </p>
-      <p className="mt-1 text-xs text-text-muted">
-        Analyzing document structure and generating corpus Markdown with S.I.R.E.
-        metadata. This page will update automatically when complete.
-      </p>
+
+      <ol className="space-y-1">
+        {PARSE_STEP_ORDER.map((step, index) => {
+          const done = index < activeIndex;
+          const active = index === activeIndex;
+          const dotClass = done
+            ? "bg-emerald-500"
+            : active
+              ? "bg-corpus-500"
+              : "bg-gray-300";
+          const textClass = done
+            ? "text-emerald-700"
+            : active
+              ? "text-corpus-700"
+              : "text-text-muted";
+
+          return (
+            <li key={step} className="flex items-center gap-2 text-xs">
+              <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+              <span className={textClass}>{stepLabel(step)}</span>
+              {active && parseJob?.status === "in_progress" && (
+                <span className="text-text-muted">• running</span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="rounded-md border border-border bg-surface-alt/40 p-2 text-xs text-text-muted">
+        {parseJob?.message ?? "Queued for worker"}
+        {parseJob?.retryCount != null && parseJob?.maxRetries != null && (
+          <span className="ml-2">
+            (attempt {String(parseJob.retryCount)}/{String(parseJob.maxRetries)})
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -405,6 +520,8 @@ function DocumentCard({
   onPromote,
   onBackToEdit,
   onDelete,
+  stopping,
+  onStopParse,
   reparseProfile,
   onReparseProfileChange,
 }: {
@@ -424,6 +541,8 @@ function DocumentCard({
   onPromote: () => Promise<void>;
   onBackToEdit: () => void;
   onDelete: () => Promise<void>;
+  stopping: boolean;
+  onStopParse: () => Promise<void>;
   reparseProfile: ParsePromptProfile;
   onReparseProfileChange: (profile: ParsePromptProfile) => void;
 }) {
@@ -556,7 +675,11 @@ function DocumentCard({
           )}
 
           {doc.status === "parsing" || doc.status === "pending" ? (
-            <ParsingIndicator />
+            <ParsingIndicator
+              parseJob={doc.parseJob}
+              stopping={stopping}
+              onStop={onStopParse}
+            />
           ) : isChunkOrWatermark ? (
             <ChunkReview
               doc={doc}

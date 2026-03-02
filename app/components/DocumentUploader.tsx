@@ -113,6 +113,7 @@ export function DocumentUploader() {
           errorMessage: null,
           auditWarningCount: 0,
           auditWarningPreview: [],
+          parseJob: null,
           chunks: null,
           sortOrder,
           promotedAt: null,
@@ -134,6 +135,19 @@ export function DocumentUploader() {
           parsePromptProfile: isPublishedStandard
             ? "published_standard"
             : "interpretation",
+        }).then((result) => {
+          store.updateDocument(documentId, {
+            parseJob: {
+              id: result.jobId as number,
+              status: "pending",
+              retryCount: 0,
+              maxRetries: 3,
+              updatedAt: new Date().toISOString(),
+              error: null,
+              step: "queued",
+              message: "Queued for worker",
+            },
+          });
         }).catch(() => {
           store.updateDocument(documentId, {
             status: "failed",

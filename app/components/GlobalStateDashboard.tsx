@@ -14,9 +14,9 @@ type DashboardSession = GlobalStateSessionSummary;
 type ViewPreset = "attention" | "all" | "in-progress" | "ready" | "failed";
 type SortKey = "updatedAt" | "sessionName" | "stage" | "status";
 type SortDirection = "asc" | "desc";
-type RowAction = "parse" | "chunk" | "watermark";
+type RowAction = "parse" | "chunk" | "watermark" | "stop_parse";
 type RefreshIntervalSeconds = 0 | 15 | 30 | 60;
-type ColumnKey = "session" | "stage" | "status" | "blocker" | "updated" | "action";
+type ColumnKey = "session" | "stage" | "status" | "timeline" | "blocker" | "updated" | "action";
 
 interface ToastMessage {
   id: string;
@@ -62,15 +62,26 @@ const STORAGE_VIEWS_KEY = "global-state.saved-views.v1";
 const STORAGE_PREFS_KEY = "global-state.ops-prefs.v1";
 const STORAGE_OPERATOR_MODE_KEY = "global-state.operator-mode.v1";
 const STORAGE_ACTION_LOG_KEY = "global-state.action-log.v1";
+const STORAGE_TIMELINE_MIGRATION_KEY = "global-state.timeline-visible-migrated.v1";
 
 const DEFAULT_VISIBLE_COLUMNS: Record<ColumnKey, boolean> = {
   session: true,
   stage: true,
   status: true,
+  timeline: true,
   blocker: true,
   updated: true,
   action: true,
 };
+
+function normalizeVisibleColumns(
+  value: Partial<Record<ColumnKey, boolean>> | undefined,
+): Record<ColumnKey, boolean> {
+  return {
+    ...DEFAULT_VISIBLE_COLUMNS,
+    ...(value ?? {}),
+  };
+}
 
 const stageLabels: Record<DashboardRow["stage"], string> = {
   failed: "Failed",
@@ -112,21 +123,35 @@ function formatUpdated(iso: string): string {
 }
 
 function actionForRow(row: DashboardRow): RowAction | null {
-  if (row.status === "failed" || row.stage === "parse") return "parse";
+  if (row.status === "failed") return "parse";
+  if (row.stage === "parse") return null;
   if (row.stage === "chunk") return "chunk";
   if (row.stage === "watermark") return "watermark";
   return null;
+}
+
+function parseStepLabel(step: string | null | undefined): string {
+  if (step === "queued") return "Queued";
+  if (step === "claimed") return "Worker claimed";
+  if (step === "chunk_audit") return "Cleaning source chunks";
+  if (step === "parse") return "Generating markdown";
+  if (step === "persist") return "Saving parsed output";
+  if (step === "completed") return "Completed";
+  if (step === "cancelled") return "Cancelled";
+  return "Waiting";
 }
 
 function actionLabel(action: RowAction, busy: boolean): string {
   if (!busy) {
     if (action === "parse") return "Retry parse";
     if (action === "chunk") return "Run chunk";
-    return "Run watermark";
+    if (action === "watermark") return "Run watermark";
+    return "Stop job";
   }
   if (action === "parse") return "Parsing...";
   if (action === "chunk") return "Chunking...";
-  return "Watermarking...";
+  if (action === "watermark") return "Watermarking...";
+  return "Stopping...";
 }
 
 function SummaryCard({
@@ -264,10 +289,23 @@ export function GlobalStateDashboard({
       const rawPrefs = localStorage.getItem(STORAGE_PREFS_KEY);
       if (rawPrefs) {
         const parsed = JSON.parse(rawPrefs) as OpsPreferenceState;
+        const hasMigratedTimeline = localStorage.getItem(STORAGE_TIMELINE_MIGRATION_KEY) === "true";
+        const normalizedColumns = normalizeVisibleColumns(parsed.visibleColumns);
+        const migratedColumns = hasMigratedTimeline
+          ? normalizedColumns
+          : {
+              ...normalizedColumns,
+              timeline: true,
+            };
+
         setRefreshIntervalSeconds(parsed.refreshIntervalSeconds ?? 30);
         setPageSize(parsed.pageSize ?? 50);
-        setVisibleColumns(parsed.visibleColumns ?? DEFAULT_VISIBLE_COLUMNS);
+        setVisibleColumns(migratedColumns);
         setShowAdvancedControls(parsed.showAdvancedControls ?? false);
+
+        if (!hasMigratedTimeline) {
+          localStorage.setItem(STORAGE_TIMELINE_MIGRATION_KEY, "true");
+        }
       }
     } catch {
       // ignore invalid local storage payload
@@ -517,8 +555,40 @@ export function GlobalStateDashboard({
       if (action === "watermark") {
         await runAction({ documentId: row.documentId, action: "watermark" });
       }
+      if (action === "stop_parse") {
+        await runAction({ documentId: row.documentId, action: "stop_parse" });
+      }
 
-      updateRowsAfterActionSuccess(row, action, nowIso);
+      if (action === "stop_parse") {
+        setRows((current) =>
+          current.map((item) =>
+            item.documentId === row.documentId
+              ? {
+                  ...item,
+                  status: "failed",
+                  stage: "failed",
+                  stale: false,
+                  attentionReason: "Parse cancelled by user",
+                  errorMessage: "Parse cancelled by user",
+                  nextAction: "Re-parse document",
+                  updatedAt: nowIso,
+                  parseJob: item.parseJob
+                    ? {
+                        ...item.parseJob,
+                        status: "failed",
+                        step: "cancelled",
+                        message: "Cancelled by user",
+                        error: "Cancelled by user",
+                        updatedAt: nowIso,
+                      }
+                    : item.parseJob,
+                }
+              : item,
+          ),
+        );
+      } else {
+        updateRowsAfterActionSuccess(row, action, nowIso);
+      }
 
       const durationMs = Math.round(performance.now() - started);
       const successMessage =
@@ -526,7 +596,9 @@ export function GlobalStateDashboard({
           ? `${row.sourceFilename}: parse queued. Next: open session and review parsed output.`
           : action === "chunk"
             ? `${row.sourceFilename}: chunking complete. Next: run watermark to lock provenance.`
-            : `${row.sourceFilename}: watermark complete. Next: promote or continue toward crosswalk.`;
+            : action === "watermark"
+              ? `${row.sourceFilename}: watermark complete. Next: promote or continue toward crosswalk.`
+              : `${row.sourceFilename}: parse job stopped.`;
       pushToast("success", successMessage);
       appendActionLog({
         timestamp: new Date().toISOString(),
@@ -746,7 +818,7 @@ export function GlobalStateDashboard({
       sortKey,
       sortDirection,
       pageSize,
-      visibleColumns,
+      visibleColumns: normalizeVisibleColumns(visibleColumns),
     };
 
     setSavedViews((current) => [view, ...current].slice(0, 30));
@@ -767,7 +839,7 @@ export function GlobalStateDashboard({
     setSortKey(view.sortKey);
     setSortDirection(view.sortDirection);
     setPageSize(view.pageSize);
-    setVisibleColumns(view.visibleColumns);
+    setVisibleColumns(normalizeVisibleColumns(view.visibleColumns));
     setPage(1);
 
     pushToast("success", `Applied view: ${view.name}`);
@@ -1320,6 +1392,7 @@ export function GlobalStateDashboard({
                 ["session", "Session"],
                 ["stage", "Stage"],
                 ["status", "Status"],
+                ["timeline", "Step Timeline"],
                 ["blocker", "Blocker"],
                 ["updated", "Updated"],
                 ["action", "Action"],
@@ -1451,6 +1524,7 @@ export function GlobalStateDashboard({
                       </button>
                     </th>
                   )}
+                  {visibleColumns.timeline && <th className="px-4 py-3">Step Timeline</th>}
                   {visibleColumns.blocker && <th className="px-4 py-3">Blocker</th>}
                   {visibleColumns.updated && (
                     <th className="px-4 py-3">
@@ -1539,6 +1613,28 @@ export function GlobalStateDashboard({
                         </td>
                       )}
 
+                      {visibleColumns.timeline && (
+                        <td className="px-4 py-3">
+                          {row.stage === "parse" ? (
+                            <div className="space-y-1 text-[11px]">
+                              <p className="font-medium text-text">
+                                {parseStepLabel(row.parseJob?.step)}
+                              </p>
+                              {row.parseJob?.message && (
+                                <p className="text-text-muted">{row.parseJob.message}</p>
+                              )}
+                              {row.parseJob && (
+                                <p className="text-text-muted">
+                                  attempt {String(row.parseJob.retryCount)}/{String(row.parseJob.maxRetries)}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-text-muted">—</p>
+                          )}
+                        </td>
+                      )}
+
                       {visibleColumns.blocker && (
                         <td className="px-4 py-3">
                           {row.attentionReason ? (
@@ -1556,6 +1652,19 @@ export function GlobalStateDashboard({
                             <p className="mt-1 text-xs text-text-muted">
                               {row.auditWarningPreview.join(", ")}
                             </p>
+                          )}
+                          {row.stage === "parse" && row.parseJob && (
+                            <div className="mt-1 rounded border border-border bg-surface-alt px-2 py-1 text-[11px] text-text-muted">
+                              <p>
+                                Step: {parseStepLabel(row.parseJob.step)}
+                                {row.parseJob.retryCount > 0 && (
+                                  <span>
+                                    {" "}(attempt {String(row.parseJob.retryCount)}/{String(row.parseJob.maxRetries)})
+                                  </span>
+                                )}
+                              </p>
+                              {row.parseJob.message && <p>{row.parseJob.message}</p>}
+                            </div>
                           )}
                           {row.errorMessage && row.status !== "failed" && (
                             <p className="mt-1 text-xs text-text-muted">{row.errorMessage}</p>
@@ -1592,6 +1701,30 @@ export function GlobalStateDashboard({
                                 {actionLabel(rowAction, isBusy)}
                               </button>
                             )}
+                            {(row.status === "parsing" || row.status === "pending") &&
+                              row.parseJob &&
+                              (row.parseJob.status === "pending" || row.parseJob.status === "in_progress") && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!operatorMode || isBusy || bulkAction !== null) return;
+                                    setLoadingByDocument((current) => ({ ...current, [row.documentId]: "stop_parse" }));
+                                    void executeRowAction(row, "stop_parse")
+                                      .then(() => refreshStateFromServer())
+                                      .finally(() => {
+                                        setLoadingByDocument((current) => ({
+                                          ...current,
+                                          [row.documentId]: null,
+                                        }));
+                                      });
+                                  }}
+                                  disabled={!operatorMode || isBusy || bulkAction !== null}
+                                  title={!operatorMode ? "Enable write actions in Advanced controls" : "Stop active parse job"}
+                                  className="inline-flex whitespace-nowrap rounded-md border border-error/30 px-2.5 py-1 text-xs font-medium text-error hover:bg-error/5 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {isBusy && busyAction === "stop_parse" ? "Stopping..." : "Stop job"}
+                                </button>
+                              )}
                           </div>
                         </td>
                       )}

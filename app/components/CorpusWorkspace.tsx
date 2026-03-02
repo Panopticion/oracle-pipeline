@@ -48,6 +48,16 @@ interface Props {
     error_message: string | null;
     audit_warning_count?: number | null;
     audit_warning_preview?: string[] | null;
+    parse_job?: {
+      id: number;
+      status: "pending" | "in_progress" | "done" | "failed";
+      retry_count: number;
+      max_retries: number;
+      updated_at: string;
+      error: string | null;
+      step?: string | null;
+      message?: string | null;
+    } | null;
     chunks_json: Array<{
       sequence: number;
       section_title: string;
@@ -94,6 +104,18 @@ function mapServerDocs(documents: Props["documents"]): SessionDoc[] {
     errorMessage: d.error_message,
     auditWarningCount: d.audit_warning_count ?? 0,
     auditWarningPreview: d.audit_warning_preview ?? [],
+    parseJob: d.parse_job
+      ? {
+          id: d.parse_job.id,
+          status: d.parse_job.status,
+          retryCount: d.parse_job.retry_count,
+          maxRetries: d.parse_job.max_retries,
+          updatedAt: d.parse_job.updated_at,
+          error: d.parse_job.error,
+          step: d.parse_job.step ?? null,
+          message: d.parse_job.message ?? null,
+        }
+      : null,
     chunks: d.chunks_json
       ? d.chunks_json.map((c) => ({
           sequence: c.sequence,

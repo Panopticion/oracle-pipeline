@@ -49,6 +49,16 @@ export interface SessionDoc {
   errorMessage: string | null;
   auditWarningCount: number;
   auditWarningPreview: string[];
+  parseJob: {
+    id: number;
+    status: "pending" | "in_progress" | "done" | "failed";
+    retryCount: number;
+    maxRetries: number;
+    updatedAt: string;
+    error: string | null;
+    step: string | null;
+    message: string | null;
+  } | null;
   chunks: ChunkData[] | null;
   sortOrder: number;
   promotedAt: string | null;

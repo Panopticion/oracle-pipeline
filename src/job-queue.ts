@@ -83,16 +83,23 @@ export async function completeJob(
   jobId: number,
   result?: Record<string, unknown>,
 ): Promise<void> {
-  const { error } = await client
+  const { data, error } = await client
     .from("corpus_jobs")
     .update({
       status: "done",
       result: result ?? null,
     })
-    .eq("id", jobId);
+    .eq("id", jobId)
+    .eq("status", "in_progress")
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to complete job ${jobId}: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error(`Job ${jobId} is no longer in progress (possibly cancelled)`);
   }
 }
 
@@ -115,7 +122,8 @@ export async function failJob(
         status: "failed",
         error: errorMessage,
       })
-      .eq("id", job.id);
+      .eq("id", job.id)
+      .eq("status", "in_progress");
 
     if (error) {
       throw new Error(`Failed to mark job ${job.id} as failed: ${error.message}`);
@@ -131,11 +139,38 @@ export async function failJob(
         error: errorMessage,
         visible_at: new Date(Date.now() + backoffSeconds * 1000).toISOString(),
       })
-      .eq("id", job.id);
+      .eq("id", job.id)
+      .eq("status", "in_progress");
 
     if (error) {
       throw new Error(`Failed to re-enqueue job ${job.id}: ${error.message}`);
     }
+  }
+}
+
+export async function updateJobProgress(
+  client: SupabaseClient,
+  jobId: number,
+  progress: {
+    step: string;
+    message: string;
+    details?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const result = {
+    step: progress.step,
+    message: progress.message,
+    updatedAt: new Date().toISOString(),
+    ...(progress.details ?? {}),
+  };
+
+  const { error } = await client
+    .from("corpus_jobs")
+    .update({ result })
+    .eq("id", jobId);
+
+  if (error) {
+    throw new Error(`Failed to update progress for job ${jobId}: ${error.message}`);
   }
 }
 

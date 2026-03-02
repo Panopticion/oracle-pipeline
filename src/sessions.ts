@@ -253,6 +253,13 @@ async function runChunkAuditPipeline(
   model: string,
 ): Promise<ChunkAuditPipelineResult> {
   const sourceChunks = splitSourceTextIntoChunks(sourceText);
+  await options.onProgress?.({
+    step: "chunk_audit",
+    message: `Preparing chunk audit (${String(sourceChunks.length)} chunk${sourceChunks.length === 1 ? "" : "s"})`,
+    details: {
+      totalChunks: sourceChunks.length,
+    },
+  });
   await persistSourceChunks(client, documentId, sourceChunks);
 
   const cleanseSystemPrompt = buildChunkCleanseSystemPrompt();
@@ -261,6 +268,15 @@ async function runChunkAuditPipeline(
   let cleanseOutputTokens = 0;
 
   for (const chunk of sourceChunks) {
+    await options.onProgress?.({
+      step: "chunk_audit",
+      message: `Cleaning source chunk ${String(chunk.sequence)}/${String(sourceChunks.length)}`,
+      details: {
+        chunkSequence: chunk.sequence,
+        totalChunks: sourceChunks.length,
+      },
+    });
+
     const cleanseResult = await callOpenRouter(
       [
         { role: "system", content: cleanseSystemPrompt },
@@ -286,6 +302,15 @@ async function runChunkAuditPipeline(
 
   await persistChunkAudits(client, documentId, audits);
 
+  await options.onProgress?.({
+    step: "chunk_audit",
+    message: "Chunk audit complete",
+    details: {
+      omissionChunkCount: audits.filter((audit) => audit.omissionDetected).length,
+      recoveredChunkCount: audits.filter((audit) => audit.recoveredFromSource).length,
+    },
+  });
+
   return {
     recoveredSourceText: audits.map((audit) => audit.recoveredText).join("\n\n"),
     sourceChunkCount: sourceChunks.length,
@@ -307,6 +332,11 @@ async function parseDocumentWithAudit(
   options: SessionParseOptions,
   model: string,
 ): Promise<SessionParseResult> {
+  await options.onProgress?.({
+    step: "chunk_audit",
+    message: "Running chunk audit and source cleanup",
+  });
+
   const chunkAudit = await runChunkAuditPipeline(
     client,
     documentId,
@@ -323,6 +353,11 @@ async function parseDocumentWithAudit(
     chunkAudit.recoveredSourceText,
     sourceFileName,
   );
+
+  await options.onProgress?.({
+    step: "parse",
+    message: "Generating structured corpus markdown",
+  });
 
   const parseResult = await callOpenRouter(
     [
@@ -546,12 +581,71 @@ export async function getSessionDocuments(
     });
   }
 
+  const parseJobByDocumentId = new Map<string, {
+    id: number;
+    status: "pending" | "in_progress" | "done" | "failed";
+    retry_count: number;
+    max_retries: number;
+    updated_at: string;
+    error: string | null;
+    step?: string | null;
+    message?: string | null;
+  }>();
+
+  const jobFetchLimit = Math.max(200, docIds.length * 8);
+  const { data: parseJobs, error: parseJobsError } = await client
+    .from("corpus_jobs")
+    .select("id, payload, status, retry_count, max_retries, updated_at, error, result")
+    .eq("kind", "parse_document")
+    .order("id", { ascending: false })
+    .limit(jobFetchLimit);
+
+  if (parseJobsError) {
+    throw new Error(`Failed to load parse jobs: ${parseJobsError.message}`);
+  }
+
+  const remainingDocIds = new Set(docIds);
+  for (const row of (parseJobs ?? []) as Array<{
+    id: number;
+    payload: Record<string, unknown> | null;
+    status: "pending" | "in_progress" | "done" | "failed";
+    retry_count: number;
+    max_retries: number;
+    updated_at: string;
+    error: string | null;
+    result: Record<string, unknown> | null;
+  }>) {
+    const documentId = typeof row.payload?.documentId === "string"
+      ? row.payload.documentId
+      : null;
+
+    if (!documentId || !remainingDocIds.has(documentId)) continue;
+
+    const step = typeof row.result?.step === "string" ? row.result.step : null;
+    const message = typeof row.result?.message === "string" ? row.result.message : null;
+
+    parseJobByDocumentId.set(documentId, {
+      id: row.id,
+      status: row.status,
+      retry_count: row.retry_count,
+      max_retries: row.max_retries,
+      updated_at: row.updated_at,
+      error: row.error,
+      step,
+      message,
+    });
+
+    remainingDocIds.delete(documentId);
+    if (remainingDocIds.size === 0) break;
+  }
+
   return docs.map((doc) => {
     const meta = warningMeta.get(doc.id);
     return {
       ...doc,
       audit_warning_count: meta?.count ?? 0,
       audit_warning_preview: meta?.preview ?? [],
+      parse_job: parseJobByDocumentId.get(doc.id) ?? null,
     };
   });
 }
@@ -755,6 +849,11 @@ export async function reparseDocument(
     .update({ status: "parsing", error_message: null, parse_model: model })
     .eq("id", documentId);
 
+  await options.onProgress?.({
+    step: "queued",
+    message: "Parse queued",
+  });
+
   // Parse with chunk-first audit + recovery pipeline
   try {
     const parse = await parseDocumentWithAudit(
@@ -767,6 +866,11 @@ export async function reparseDocument(
     );
 
     // Update with result
+    await options.onProgress?.({
+      step: "persist",
+      message: "Saving parsed output",
+    });
+
     await client
       .from("corpus_session_documents")
       .update({
@@ -776,7 +880,13 @@ export async function reparseDocument(
         status: "parsed",
         user_markdown: null, // Clear previous edits
       })
-      .eq("id", documentId);
+      .eq("id", documentId)
+      .eq("status", "parsing");
+
+    await options.onProgress?.({
+      step: "completed",
+      message: "Parse completed",
+    });
 
     return parse;
   } catch (err) {
@@ -787,7 +897,8 @@ export async function reparseDocument(
         status: "failed",
         error_message: `Re-parse failed: ${msg}`,
       })
-      .eq("id", documentId);
+      .eq("id", documentId)
+      .eq("status", "parsing");
 
     throw err;
   }

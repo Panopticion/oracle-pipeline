@@ -60,6 +60,16 @@ export type GlobalStateDocumentRow = {
   watermarkValid: boolean;
   auditWarningCount: number;
   auditWarningPreview: string[];
+  parseJob: {
+    id: number;
+    status: "pending" | "in_progress" | "done" | "failed";
+    retryCount: number;
+    maxRetries: number;
+    updatedAt: string;
+    error: string | null;
+    step: string | null;
+    message: string | null;
+  } | null;
   updatedAt: string;
   stale: boolean;
   attentionReason: string | null;
@@ -123,7 +133,7 @@ export type ServerResult<T> =
       error: ServerErrorEnvelope;
     };
 
-export type GlobalStateActionKind = "parse" | "chunk" | "watermark";
+export type GlobalStateActionKind = "parse" | "chunk" | "watermark" | "stop_parse";
 
 export type GlobalStateActionRequest = {
   documentId: string;
