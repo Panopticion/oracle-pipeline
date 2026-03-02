@@ -266,7 +266,7 @@ const statusBadge: Record<string, { bg: string; label: string }> = {
 
 // ─── Parsing Indicator ──────────────────────────────────────────────────────
 
-const PARSE_STEP_ORDER = ["queued", "claimed", "chunk_audit", "parse", "persist", "completed"] as const;
+const PARSE_STEP_ORDER = ["queued", "claimed", "chunk_audit", "parse", "persist"] as const;
 
 function stepLabel(step: string): string {
   if (step === "queued") return "Queued";
@@ -288,8 +288,25 @@ function ParsingIndicator({
   stopping: boolean;
   onStop: () => Promise<void>;
 }) {
-  const activeStep = parseJob?.step ?? (parseJob?.status === "pending" ? "queued" : parseJob?.status === "in_progress" ? "claimed" : "queued");
-  const activeIndex = Math.max(0, PARSE_STEP_ORDER.indexOf(activeStep as (typeof PARSE_STEP_ORDER)[number]));
+  const fallbackStep =
+    parseJob?.status === "in_progress"
+      ? "claimed"
+      : "queued";
+
+  const stepFromJob = parseJob?.step;
+  const normalizedStep =
+    stepFromJob === "completed" || stepFromJob === "cancelled"
+      ? "persist"
+      : (stepFromJob ?? fallbackStep);
+
+  const activeStep = PARSE_STEP_ORDER.includes(normalizedStep as (typeof PARSE_STEP_ORDER)[number])
+    ? (normalizedStep as (typeof PARSE_STEP_ORDER)[number])
+    : "queued";
+
+  const activeIndex = Math.max(0, PARSE_STEP_ORDER.indexOf(activeStep));
+  const isRetryQueued = parseJob?.status === "pending" && (parseJob?.retryCount ?? 0) > 1;
+  const effectiveMessage = parseJob?.message
+    ?? (isRetryQueued ? "Retry queued for worker" : "Queued for worker");
 
   return (
     <div className="space-y-4 py-4">
@@ -340,10 +357,10 @@ function ParsingIndicator({
       </ol>
 
       <div className="rounded-md border border-border bg-surface-alt/40 p-2 text-xs text-text-muted">
-        {parseJob?.message ?? "Queued for worker"}
+        {effectiveMessage}
         {parseJob?.retryCount != null && parseJob?.maxRetries != null && (
           <span className="ml-2">
-            (attempt {String(parseJob.retryCount)}/{String(parseJob.maxRetries)})
+            {" "}(attempt {String(parseJob.retryCount)}/{String(parseJob.maxRetries)})
           </span>
         )}
       </div>
