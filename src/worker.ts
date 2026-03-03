@@ -91,7 +91,7 @@ async function handleParseDocument(
   const client = getClient();
   const { documentId, parsePromptProfile } = job.payload as {
     documentId: string;
-    parsePromptProfile?: "published_standard" | "interpretation";
+    parsePromptProfile?: "published_standard" | "interpretation" | "firecrawl_prepped";
   };
 
   console.log(`  [parse] documentId=${documentId}`);

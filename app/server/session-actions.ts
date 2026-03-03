@@ -538,6 +538,84 @@ export const extractUploadText = createServerFn({ method: "POST" })
     return { text };
   });
 
+export const extractUrlText = createServerFn({ method: "POST" })
+  .inputValidator((data: { url: string }) => data)
+  .handler(async ({ data }) => {
+    await requireUser();
+    const apiKey = process.env.FIRECRAWL_API_KEY;
+    if (!apiKey) {
+      fail("DEPENDENCY_ERROR", "Missing FIRECRAWL_API_KEY environment variable", 500);
+    }
+
+    const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url: data.url,
+        onlyMainContent: false,
+        maxAge: 172800000,
+        parsers: ["pdf"],
+        formats: ["markdown"],
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      fail("DEPENDENCY_ERROR", `Firecrawl error ${res.status}: ${body.slice(0, 200)}`, 502);
+    }
+
+    const json = await res.json();
+    const markdown = json.data?.markdown;
+    if (!markdown?.trim()) {
+      fail("DEPENDENCY_ERROR", "Firecrawl returned empty content", 502);
+    }
+
+    return { text: markdown as string };
+  });
+
+export const extractUrlTextResult = createServerFn({ method: "POST" })
+  .inputValidator((data: { url: string }) => data)
+  .handler(async ({ data }) =>
+    asServerResult(async () => {
+      await requireUser();
+      const apiKey = process.env.FIRECRAWL_API_KEY;
+      if (!apiKey) {
+        fail("DEPENDENCY_ERROR", "Missing FIRECRAWL_API_KEY environment variable", 500);
+      }
+
+      const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url: data.url,
+          onlyMainContent: false,
+          maxAge: 172800000,
+          parsers: ["pdf"],
+          formats: ["markdown"],
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        fail("DEPENDENCY_ERROR", `Firecrawl error ${res.status}: ${body.slice(0, 200)}`, 502);
+      }
+
+      const json = await res.json();
+      const markdown = json.data?.markdown;
+      if (!markdown?.trim()) {
+        fail("DEPENDENCY_ERROR", "Firecrawl returned empty content", 502);
+      }
+
+      return { text: markdown as string };
+    }),
+  );
+
 export const extractUploadTextResult = createServerFn({ method: "POST" })
   .inputValidator(
     (data: {
@@ -559,7 +637,7 @@ export const extractUploadTextResult = createServerFn({ method: "POST" })
 export const reparseDocument = createServerFn({ method: "POST" })
   .inputValidator((data: {
     documentId: string;
-    parsePromptProfile?: "published_standard" | "interpretation";
+    parsePromptProfile?: "published_standard" | "interpretation" | "firecrawl_prepped";
   }) => data)
   .handler(async ({ data }) => {
     const user = await requireUser();
@@ -589,7 +667,7 @@ export const reparseDocument = createServerFn({ method: "POST" })
 export const reparseDocumentResult = createServerFn({ method: "POST" })
   .inputValidator((data: {
     documentId: string;
-    parsePromptProfile?: "published_standard" | "interpretation";
+    parsePromptProfile?: "published_standard" | "interpretation" | "firecrawl_prepped";
   }) => data)
   .handler(async ({ data }) =>
     asServerResult(async () => {

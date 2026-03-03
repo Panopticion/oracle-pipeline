@@ -71,12 +71,15 @@ function buildDefaultUploadName(): string {
 
 export function DocumentUploader() {
   const store = useSessionStore();
-  const { extractUploadText, insertDocForParse, reparseDocument } = useSessionWorkflowOps();
+  const { extractUploadText, extractUrlText, insertDocForParse, reparseDocument } = useSessionWorkflowOps();
   const [sourceText, setSourceText] = useState("");
   const [fileName, setFileName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [fetchingUrl, setFetchingUrl] = useState(false);
   const [isPublishedStandard, setIsPublishedStandard] = useState(true);
+  const [isFirecrawlPrepped, setIsFirecrawlPrepped] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [lastOutcome, setLastOutcome] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -127,14 +130,19 @@ export function DocumentUploader() {
       // Reset form (user can start another upload)
       setSourceText("");
       setFileName("");
+      setIsFirecrawlPrepped(false);
+      setSourceUrl("");
 
       if (!isDuplicate) {
         // Fire off parse — polling picks up result when done
+        const profile = isFirecrawlPrepped
+          ? "firecrawl_prepped" as const
+          : isPublishedStandard
+            ? "published_standard" as const
+            : "interpretation" as const;
         reparseDocument({
           documentId,
-          parsePromptProfile: isPublishedStandard
-            ? "published_standard"
-            : "interpretation",
+          parsePromptProfile: profile,
         }).then((result) => {
           store.updateDocument(documentId, {
             parseJob: {
@@ -209,6 +217,31 @@ export function DocumentUploader() {
     setSourceText("");
   }
 
+  async function handleUrlFetch() {
+    const url = sourceUrl.trim();
+    if (!url) return;
+
+    setFetchingUrl(true);
+    setError(null);
+    setLastOutcome(null);
+
+    try {
+      const { text } = await extractUrlText({ url });
+      setSourceText(text);
+      setIsFirecrawlPrepped(true);
+      // Derive filename from URL hostname + timestamp
+      const hostname = new URL(url).hostname.replace(/^www\./, "");
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
+      setFileName(`${hostname}_${ts}.md`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch URL");
+      setSourceText("");
+      setIsFirecrawlPrepped(false);
+    } finally {
+      setFetchingUrl(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-border bg-surface p-6">
@@ -232,26 +265,56 @@ export function DocumentUploader() {
           </button>
         </div>
 
-        {/* File input */}
+        {/* URL fetch (Firecrawl) */}
         <div className="mb-4">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".txt,.md,.markdown,.json,.yaml,.yml,.pdf,.docx"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          <button type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="rounded-md border border-border bg-surface px-4 py-2 text-sm text-text-muted hover:bg-surface-alt"
-          >
-            Choose file (.txt, .md, .json, .yaml, .pdf, .docx)
-          </button>
+          <label className="mb-1 block text-xs font-medium text-text-muted">
+            Fetch from URL (PDF, web page)
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder="https://example.com/document.pdf"
+              className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-corpus-500 focus:ring-1 focus:ring-corpus-500"
+              disabled={fetchingUrl}
+            />
+            <button
+              type="button"
+              onClick={handleUrlFetch}
+              disabled={!sourceUrl.trim() || fetchingUrl}
+              className="rounded-md bg-corpus-600 px-4 py-2 text-sm font-medium text-white hover:bg-corpus-700 disabled:opacity-50"
+            >
+              {fetchingUrl ? "Fetching..." : "Fetch"}
+            </button>
+          </div>
+          {fetchingUrl && (
+            <p className="mt-1 text-xs text-text-muted">Extracting document via Firecrawl...</p>
+          )}
+        </div>
+
+        <div className="mb-4 flex items-center gap-4">
+          {/* File input */}
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.md,.markdown,.json,.yaml,.yml,.pdf,.docx"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <button type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-md border border-border bg-surface px-4 py-2 text-sm text-text-muted hover:bg-surface-alt"
+            >
+              Or choose file
+            </button>
+          </div>
           {fileName && (
-            <span className="ml-3 text-sm text-text-muted">{fileName}</span>
+            <span className="text-sm text-text-muted">{fileName}</span>
           )}
           {extracting && (
-            <span className="ml-3 text-xs text-text-muted">Extracting text...</span>
+            <span className="text-xs text-text-muted">Extracting text...</span>
           )}
         </div>
 
@@ -270,19 +333,29 @@ export function DocumentUploader() {
           />
         </div>
 
-        <div className="mb-4 rounded-md border border-border bg-surface-alt/30 p-3">
-          <label className="flex items-center gap-2 text-sm text-text">
-            <input
-              type="checkbox"
-              checked={isPublishedStandard}
-              onChange={(e) => setIsPublishedStandard(e.target.checked)}
-              className="h-4 w-4"
-            />
-            This upload is a published standard / primary source text
-          </label>
-          <p className="mt-1 text-xs text-text-muted">
-            Checked = strict fidelity prompt. Unchecked = interpretation/secondary-source prompt.
-          </p>
+        <div className="mb-4 rounded-md border border-border bg-surface-alt/30 p-3 space-y-2">
+          {isFirecrawlPrepped && (
+            <div className="flex items-center gap-2 text-xs text-corpus-600 font-medium">
+              <span className="inline-block h-2 w-2 rounded-full bg-corpus-500" />
+              Firecrawl-prepped — AI will generate frontmatter only (body already clean)
+            </div>
+          )}
+          {!isFirecrawlPrepped && (
+            <>
+              <label className="flex items-center gap-2 text-sm text-text">
+                <input
+                  type="checkbox"
+                  checked={isPublishedStandard}
+                  onChange={(e) => setIsPublishedStandard(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                This upload is a published standard / primary source text
+              </label>
+              <p className="text-xs text-text-muted">
+                Checked = strict fidelity prompt. Unchecked = interpretation/secondary-source prompt.
+              </p>
+            </>
+          )}
         </div>
 
         {/* Word count */}
@@ -302,10 +375,10 @@ export function DocumentUploader() {
         {/* Parse button */}
         <button type="button"
           onClick={handleParse}
-          disabled={!sourceText.trim() || submitting || extracting}
+          disabled={!sourceText.trim() || submitting || extracting || fetchingUrl}
           className="rounded-md bg-corpus-600 px-6 py-2 text-sm font-medium text-white hover:bg-corpus-700 disabled:opacity-50"
         >
-          {extracting ? "Extracting..." : submitting ? "Uploading..." : "Parse Document"}
+          {extracting ? "Extracting..." : fetchingUrl ? "Fetching..." : submitting ? "Uploading..." : isFirecrawlPrepped ? "Parse (Frontmatter Only)" : "Parse Document"}
         </button>
 
         {lastOutcome && (

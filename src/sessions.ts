@@ -23,6 +23,8 @@ import { callOpenRouter } from "./openrouter";
 import {
   buildParseSystemPrompt,
   buildParseUserMessage,
+  buildFrontmatterOnlySystemPrompt,
+  buildFrontmatterOnlyUserMessage,
 } from "./prompts/parse-document";
 import {
   buildChunkCleanseSystemPrompt,
@@ -466,6 +468,12 @@ async function parseDocumentWithAudit(
   options: SessionParseOptions,
   model: string,
 ): Promise<SessionParseResult> {
+  // ─── Firecrawl-prepped path: AI generates frontmatter only ──────────────
+  if (options.parsePromptProfile === "firecrawl_prepped") {
+    return parseFirecrawlPrepped(client, documentId, sourceText, sourceFileName, options, model);
+  }
+
+  // ─── Standard path: chunk audit → AI full parse ─────────────────────────
   await options.onProgress?.({
     step: "chunk_audit",
     message: "Running chunk audit and source cleanup",
@@ -564,6 +572,107 @@ async function parseDocumentWithAudit(
     recoveredChunkCount: chunkAudit.recoveredChunkCount,
     auditWarnings: chunkAudit.auditWarnings,
   };
+}
+
+/**
+ * Firecrawl-prepped parse: body is already clean markdown from Firecrawl.
+ * AI generates ONLY the YAML frontmatter, which is combined with the body.
+ * Skips chunk audit entirely — no need to clean already-clean text.
+ */
+async function parseFirecrawlPrepped(
+  client: SupabaseClient,
+  documentId: string,
+  sourceText: string,
+  sourceFileName: string | undefined,
+  options: SessionParseOptions,
+  model: string,
+): Promise<SessionParseResult> {
+  await options.onProgress?.({
+    step: "parse",
+    message: "Firecrawl-prepped — generating frontmatter only",
+  });
+
+  const systemPrompt = buildFrontmatterOnlySystemPrompt(model, options.hints);
+  const userMessage = buildFrontmatterOnlyUserMessage(sourceText, sourceFileName);
+
+  const parseResult = await callOpenRouter(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
+    {
+      apiKey: options.openrouterApiKey,
+      model,
+    },
+  );
+
+  // Extract frontmatter from AI response
+  const frontmatter = extractFrontmatterBlock(parseResult.content);
+  if (!frontmatter) {
+    await client
+      .from("corpus_session_documents")
+      .update({
+        status: "failed",
+        error_message: "AI failed to produce valid YAML frontmatter",
+        parsed_markdown: parseResult.content,
+        parse_tokens_in: parseResult.inputTokens,
+        parse_tokens_out: parseResult.outputTokens,
+      })
+      .eq("id", documentId);
+
+    throw new Error("AI produced invalid frontmatter for Firecrawl-prepped document");
+  }
+
+  // Combine: AI frontmatter + Firecrawl body
+  const combined = `${frontmatter}\n\n${sourceText}`;
+
+  // Validate the combined document
+  const selected = selectValidCorpusMarkdown(combined);
+  if (!selected.markdown) {
+    const msg = selected.parseError ?? "Combined document failed validation";
+
+    await client
+      .from("corpus_session_documents")
+      .update({
+        status: "failed",
+        error_message: `Firecrawl-prepped parse failed validation: ${msg}`,
+        parsed_markdown: combined,
+        parse_tokens_in: parseResult.inputTokens,
+        parse_tokens_out: parseResult.outputTokens,
+      })
+      .eq("id", documentId);
+
+    throw new Error(`Firecrawl-prepped parse failed: ${msg}`);
+  }
+
+  return {
+    documentId,
+    parsedMarkdown: selected.markdown,
+    model: parseResult.model,
+    inputTokens: parseResult.inputTokens,
+    outputTokens: parseResult.outputTokens,
+    totalSourceChunks: 0,
+    omissionChunkCount: 0,
+    recoveredChunkCount: 0,
+    auditWarnings: [],
+  };
+}
+
+/**
+ * Extract the YAML frontmatter block (---\n...\n---) from AI output.
+ * Returns the full block including delimiters, or null if not found.
+ */
+function extractFrontmatterBlock(raw: string): string | null {
+  const trimmed = raw.trim();
+  // Try direct extraction
+  const match = trimmed.match(/^---\r?\n[\s\S]*?\n---/);
+  if (match) return match[0];
+
+  // Try extracting from code fences
+  const fenced = trimmed.match(/```(?:ya?ml)?\s*\n(---\r?\n[\s\S]*?\n---)\s*\n```/);
+  if (fenced) return fenced[1];
+
+  return null;
 }
 
 // ─── Session CRUD ───────────────────────────────────────────────────────────

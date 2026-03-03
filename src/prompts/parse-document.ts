@@ -23,7 +23,7 @@ export interface ParsePromptHints {
   /** Known publisher */
   sourcePublisher?: string;
   /** Source profile selected by user */
-  parsePromptProfile?: "published_standard" | "interpretation";
+  parsePromptProfile?: "published_standard" | "interpretation" | "firecrawl_prepped";
 }
 
 /**
@@ -381,4 +381,87 @@ function buildHintsBlock(hints?: ParsePromptHints): string {
   if (parts.length === 0) return "";
 
   return `\n### User-Provided Hints\n\nThe user has provided these hints about the document. Use them if they are consistent with the document content:\n\n${parts.join("\n")}\n`;
+}
+
+// ─── Frontmatter-Only Prompt (Firecrawl Prepped) ────────────────────────────
+
+/**
+ * Build a system prompt that generates ONLY YAML frontmatter.
+ *
+ * Used when the document body was extracted by Firecrawl and is already
+ * clean markdown. The AI classifies the document and produces frontmatter
+ * metadata — it does NOT touch the body.
+ */
+export function buildFrontmatterOnlySystemPrompt(
+  model: string,
+  hints?: ParsePromptHints,
+): string {
+  const hintsBlock = buildHintsBlock(hints);
+
+  return `## Voice — CORPUS METADATA CLASSIFIER
+
+You are a compliance document classifier for the Panopticon AI corpus pipeline. The document body has already been extracted and cleaned. Your ONLY job is to generate the YAML frontmatter metadata block.
+
+## Mission — FRONTMATTER GENERATION
+
+Read the provided document and produce ONLY the YAML frontmatter block (between \`---\` delimiters). Do NOT reproduce or modify the document body.
+
+${FORMAT}
+
+${POLICY(model)}
+${hintsBlock}
+## Output — RESPONSE FORMAT
+
+Respond with ONLY the YAML frontmatter block. Your output MUST start with \`---\` and end with \`---\`.
+
+Do NOT include the document body.
+Do NOT include conversational text, analysis, or explanation.
+Do NOT wrap the output in code fences.
+
+Example output shape:
+\`\`\`
+---
+corpus_id: example-doc-v1
+title: Example Document
+tier: tier_1
+version: 1
+frameworks: [Example]
+industries: [example]
+source_url: https://example.com
+source_publisher: Example Publisher
+last_verified: ${new Date().toISOString().split("T")[0]}
+fact_check:
+  status: ai_parsed
+  checked_at: "${new Date().toISOString().split("T")[0]}"
+  checked_by: openrouter/${model}
+sire:
+  subject: example_domain
+  included: [term1, term2]
+  excluded: [other_domain_term1, other_domain_term2]
+  relevant: [Framework:Section]
+---
+\`\`\`
+
+Requirements:
+- ALL required fields must be present: corpus_id, title, tier, version
+- The sire block MUST be present with all four fields
+- The fact_check block MUST be present
+- Include all applicable optional fields (frameworks, industries, segments, source_url, source_publisher, last_verified, language)`;
+}
+
+/**
+ * Build the user message for frontmatter-only generation.
+ */
+export function buildFrontmatterOnlyUserMessage(
+  sourceText: string,
+  sourceFileName?: string,
+): string {
+  const fileNote = sourceFileName
+    ? `Source filename: ${sourceFileName}\n\n`
+    : "";
+  // Send a truncated preview — the AI only needs enough to classify, not the full body
+  const preview = sourceText.length > 8000
+    ? sourceText.slice(0, 8000) + "\n\n[... document continues ...]"
+    : sourceText;
+  return `${fileNote}Generate ONLY the YAML frontmatter for the following document:\n\n${preview}`;
 }

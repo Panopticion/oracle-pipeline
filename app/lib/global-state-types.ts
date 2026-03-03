@@ -138,7 +138,7 @@ export type GlobalStateActionKind = "parse" | "chunk" | "watermark" | "stop_pars
 export type GlobalStateActionRequest = {
   documentId: string;
   action: GlobalStateActionKind;
-  parsePromptProfile?: "published_standard" | "interpretation";
+  parsePromptProfile?: "published_standard" | "interpretation" | "firecrawl_prepped";
 };
 
 export type GlobalStateActionResponse = {

@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import {
   chunkDocResult,
   extractUploadTextResult,
+  extractUrlTextResult,
   generateCrosswalkResult,
   insertDocForParseResult,
   markCompleteResult,
@@ -15,7 +16,7 @@ import {
 } from "@/server/session-actions";
 import type { ServerResult } from "@/lib/global-state-types";
 
-type ParsePromptProfile = "published_standard" | "interpretation";
+type ParsePromptProfile = "published_standard" | "interpretation" | "firecrawl_prepped";
 
 type ChunkRecord = {
   sequence: number;
@@ -50,6 +51,11 @@ function unwrapServerResult<T>(result: ServerResult<T>): T {
 export function useSessionWorkflowOps() {
   const extractUploadText = useCallback(async (data: { fileName: string; fileBase64: string }) => {
     const result = await extractUploadTextResult({ data });
+    return unwrapServerResult(result);
+  }, []);
+
+  const extractUrlText = useCallback(async (data: { url: string }) => {
+    const result = await extractUrlTextResult({ data });
     return unwrapServerResult(result);
   }, []);
 
@@ -117,6 +123,7 @@ export function useSessionWorkflowOps() {
 
   return {
     extractUploadText,
+    extractUrlText,
     insertDocForParse,
     reparseDocument,
     stopParseJob,

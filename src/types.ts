@@ -235,7 +235,7 @@ export type ParseDraftStatus =
   | "rejected"
   | "failed";
 
-export type ParsePromptProfile = "published_standard" | "interpretation";
+export type ParsePromptProfile = "published_standard" | "interpretation" | "firecrawl_prepped";
 
 /** Options for submitting a document for AI parsing. */
 export interface ParseOptions {
