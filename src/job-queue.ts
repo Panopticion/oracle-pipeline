@@ -164,13 +164,20 @@ export async function updateJobProgress(
     ...(progress.details ?? {}),
   };
 
-  const { error } = await client
+  const { data, error } = await client
     .from("corpus_jobs")
     .update({ result })
-    .eq("id", jobId);
+    .eq("id", jobId)
+    .eq("status", "in_progress")
+    .select("id")
+    .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to update progress for job ${jobId}: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error(`Job ${jobId} is no longer in progress (possibly cancelled)`);
   }
 }
 
