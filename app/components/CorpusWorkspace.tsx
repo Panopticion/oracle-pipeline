@@ -603,7 +603,7 @@ export function CorpusWorkspace({ session, documents }: Props) {
             <span
               className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${readiness.canGenerateCrosswalk ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
             >
-              {readiness.canGenerateCrosswalk ? "Crosswalk ready" : "Blocked"}
+              {readiness.canGenerateCrosswalk ? "Crosswalk ready" : "Not ready"}
             </span>
           </div>
         </div>
