@@ -143,6 +143,140 @@ interface ChunkAuditPipelineResult {
   outputTokens: number;
 }
 
+const DETERMINISTIC_PARSE_WORD_THRESHOLD = Number.parseInt(
+  process.env.DETERMINISTIC_PARSE_WORD_THRESHOLD ?? "50000",
+  10,
+);
+
+function wordCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function toKebabCase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function toTitleCase(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function inferTitle(sourceFileName: string | undefined, sourceText: string): string {
+  const fromFile = sourceFileName?.trim();
+  if (fromFile) {
+    const noExt = fromFile.replace(/\.[a-z0-9]+$/i, "");
+    const normalized = noExt.replace(/[_-]+/g, " ").trim();
+    if (normalized) return toTitleCase(normalized);
+  }
+
+  const firstLine = sourceText
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+
+  if (firstLine) {
+    return firstLine.slice(0, 120);
+  }
+
+  return "Compliance Document";
+}
+
+function buildDeterministicSections(sourceText: string): string {
+  const paragraphs = sourceText
+    .split(/\n\s*\n/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) {
+    return "## Section 1\n\nNo content extracted.";
+  }
+
+  const targetWords = 1200;
+  const sections: string[] = [];
+  let bucket: string[] = [];
+  let bucketWords = 0;
+
+  const flush = () => {
+    if (bucket.length === 0) return;
+    const idx = sections.length + 1;
+    const preview = bucket[0].replace(/^#+\s+/, "").slice(0, 80).trim();
+    const title = preview ? `Section ${String(idx)} — ${preview}` : `Section ${String(idx)}`;
+    sections.push(`## ${title}\n\n${bucket.join("\n\n")}`);
+    bucket = [];
+    bucketWords = 0;
+  };
+
+  for (const paragraph of paragraphs) {
+    const paraWords = wordCount(paragraph);
+
+    if (bucketWords > 0 && bucketWords + paraWords > targetWords) {
+      flush();
+    }
+
+    bucket.push(paragraph);
+    bucketWords += paraWords;
+  }
+
+  flush();
+
+  return sections.join("\n\n");
+}
+
+function buildDeterministicCorpusMarkdown(params: {
+  sourceText: string;
+  sourceFileName?: string;
+  hints?: SessionParseOptions["hints"];
+}): string {
+  const title = inferTitle(params.sourceFileName, params.sourceText);
+  const hash = sha256(`${title}\n${params.sourceText}`).slice(0, 8);
+  const slugBase = toKebabCase(title) || `document-${hash}`;
+  const corpusId = `${slugBase}-${hash}-v1`;
+  const today = new Date().toISOString().slice(0, 10);
+  const tier = params.hints?.tier && /^tier_[123]$/.test(params.hints.tier)
+    ? params.hints.tier
+    : "tier_2";
+  const frameworks = (params.hints?.frameworks ?? []).filter(Boolean);
+  const industries = (params.hints?.industries ?? []).filter(Boolean);
+  const sourcePublisher = params.hints?.sourcePublisher?.trim() || "Unknown";
+  const sourceUrl = params.hints?.sourceUrl?.trim() || "unknown";
+
+  const body = buildDeterministicSections(params.sourceText);
+
+  const markdown = `---
+corpus_id: ${corpusId}
+title: ${title}
+tier: ${tier}
+version: 1
+frameworks: [${frameworks.join(", ")}]
+industries: [${industries.join(", ")}]
+source_url: ${sourceUrl}
+source_publisher: ${sourcePublisher}
+last_verified: ${today}
+language: english
+fact_check:
+  status: ai_parsed
+  checked_at: "${today}"
+  checked_by: deterministic-assembler-v1
+sire:
+  subject: compliance
+  included: [regulation, control, requirement]
+  excluded: []
+  relevant: []
+---
+
+${body}`;
+
+  parseCorpusContent(markdown);
+  return markdown;
+}
+
 function isMissingAuditTableError(error: {
   code?: string;
   message?: string;
@@ -349,6 +483,37 @@ async function parseDocumentWithAudit(
     ...(options.hints ?? {}),
     parsePromptProfile: options.parsePromptProfile,
   });
+
+  const recoveredWordCount = wordCount(chunkAudit.recoveredSourceText);
+  if (recoveredWordCount >= DETERMINISTIC_PARSE_WORD_THRESHOLD) {
+    await options.onProgress?.({
+      step: "parse",
+      message: "Large document detected — using deterministic assembly",
+      details: {
+        recoveredWordCount,
+        threshold: DETERMINISTIC_PARSE_WORD_THRESHOLD,
+      },
+    });
+
+    const deterministicMarkdown = buildDeterministicCorpusMarkdown({
+      sourceText: chunkAudit.recoveredSourceText,
+      sourceFileName,
+      hints: options.hints,
+    });
+
+    return {
+      documentId,
+      parsedMarkdown: deterministicMarkdown,
+      model: "deterministic-assembler-v1",
+      inputTokens: chunkAudit.inputTokens,
+      outputTokens: chunkAudit.outputTokens,
+      totalSourceChunks: chunkAudit.sourceChunkCount,
+      omissionChunkCount: chunkAudit.omissionChunkCount,
+      recoveredChunkCount: chunkAudit.recoveredChunkCount,
+      auditWarnings: chunkAudit.auditWarnings,
+    };
+  }
+
   const userMessage = buildParseUserMessage(
     chunkAudit.recoveredSourceText,
     sourceFileName,
